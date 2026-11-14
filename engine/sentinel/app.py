@@ -13,7 +13,10 @@ from fastapi.responses import JSONResponse
 
 from sentinel import wire
 from sentinel.core.model import Conversation, Event, Params, Reply, Upstream
+from sentinel.core.policy import load_policy
 from sentinel.core.turn import TurnContext, UpstreamError, run_turn
+from sentinel.core.vault import Vault
+from sentinel.presidio_detector import PresidioDetector
 from sentinel.store import Store
 from sentinel.upstreams import UpstreamClients, registry_from_env
 
@@ -60,11 +63,14 @@ class ShellPorts:
 
 def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / "policy.yaml") -> FastAPI:
     policy = yaml.safe_load(policy_path.read_text())
+    compiled = load_policy(policy)
+    detector = PresidioDetector()
     upstreams = registry_from_env()
     clients = UpstreamClients(upstreams)
     store = Store(db_path)
     hub = Hub()
-    ctx = TurnContext(upstreams=upstreams, ports=ShellPorts(clients, store, hub))
+    ports = ShellPorts(clients, store, hub)
+    vaults: dict[str, Vault] = {}  # by x-sentinel-session
     app = FastAPI(title="SENTINEL")
 
     @app.post("/v1/messages")
@@ -74,7 +80,8 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
         except (wire.WireError, json.JSONDecodeError) as e:
             return JSONResponse(wire.error_body("invalid_request_error", str(e)), status_code=400)
         try:
-            reply = await run_turn(inbound, ctx)
+            vault = vaults.setdefault(inbound.session_id, Vault())
+            reply = await run_turn(inbound, TurnContext(upstreams, ports, compiled, detector, vault))
         except UpstreamError as e:
             return JSONResponse(e.body, status_code=e.status)
         return JSONResponse(wire.reply_to_json(reply))

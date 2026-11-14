@@ -8,11 +8,22 @@ import pytest
 
 from sentinel import wire
 from sentinel.core.model import Action, Stage
+from sentinel.core.policy import Policy
 from sentinel.core.turn import Turn, TurnContext, UpstreamError, run_turn
+from sentinel.core.vault import Vault
 from sentinel.upstreams import registry_from_env
 
 CAPTURED = json.loads((Path(__file__).parent / "fixtures" / "deepseek_reply.json").read_text())
 UPSTREAMS = registry_from_env({})
+
+
+class NoFindings:
+    def scan(self, text, entity_types):
+        return ()
+
+
+def context(ports):
+    return TurnContext(UPSTREAMS, ports, Policy(tiers={}), NoFindings(), Vault())
 
 
 class FakePorts:
@@ -37,7 +48,7 @@ def inbound(headers=None):
 
 def test_turn_returns_what_the_upstream_returned_and_logs_one_event():
     ports = FakePorts(reply=wire.parse_reply(CAPTURED))
-    reply = asyncio.run(run_turn(inbound({"x-sentinel-session": "s1"}), TurnContext(UPSTREAMS, ports)))
+    reply = asyncio.run(run_turn(inbound({"x-sentinel-session": "s1"}), context(ports)))
 
     assert wire.reply_to_json(reply) == CAPTURED
     assert ports.calls == [("cloud", {"max_tokens": 100,
@@ -51,7 +62,7 @@ def test_turn_returns_what_the_upstream_returned_and_logs_one_event():
 
 def test_requested_upstream_header_is_honored():
     ports = FakePorts(reply=wire.parse_reply(CAPTURED))
-    asyncio.run(run_turn(inbound({"x-sentinel-upstream": "local"}), TurnContext(UPSTREAMS, ports)))
+    asyncio.run(run_turn(inbound({"x-sentinel-upstream": "local"}), context(ports)))
     assert ports.calls[0][0] == "local"
     assert ports.events[-1].upstream.model == "glm-5.3-flash"
 
@@ -59,7 +70,7 @@ def test_requested_upstream_header_is_honored():
 def test_upstream_error_fails_the_turn_and_propagates():
     ports = FakePorts(error=UpstreamError(429, {"type": "error", "error": {"type": "rate_limit_error"}}))
     with pytest.raises(UpstreamError):
-        asyncio.run(run_turn(inbound(), TurnContext(UPSTREAMS, ports)))
+        asyncio.run(run_turn(inbound(), context(ports)))
     assert (ports.events[-1].stage, ports.events[-1].error) == (Stage.FAILED, "upstream 429")
 
 

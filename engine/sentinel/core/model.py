@@ -6,9 +6,10 @@ the `extra` maps, which are carried and never interpreted.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections import Counter
+from dataclasses import dataclass, field, replace
 from enum import Enum, IntEnum
-from typing import Any, Callable, Iterator, Literal, Mapping
+from typing import Any, Callable, ClassVar, Iterator, Literal, Mapping
 
 JSON = Any
 
@@ -192,6 +193,106 @@ class Reply:
     usage: Mapping[str, JSON] = field(default_factory=dict)
     extra: Mapping[str, JSON] = field(default_factory=dict)
 
+    def rewrite(self, fn: Callable[[Leaf], str]) -> Reply:
+        return replace(self, blocks=tuple(_block_rewrite(b, ("content", j), fn) for j, b in enumerate(self.blocks)))
+
+
+@dataclass(frozen=True)
+class Span:
+    """What a Detector returns for one string. Offsets into that string."""
+
+    entity_type: str
+    start: int
+    end: int
+    score: float
+
+
+@dataclass(frozen=True)
+class Finding:
+    entity_type: str
+    tier: Tier
+    path: LeafPath
+    start: int  # offsets into the leaf text the agent sent
+    end: int
+    score: float
+    value: str
+    source: Literal["vault", "detector"]
+
+
+@dataclass(frozen=True)
+class Detection:
+    findings: tuple[Finding, ...]
+
+    @property
+    def tier(self) -> Tier:
+        return max((f.tier for f in self.findings), default=Tier.PUBLIC)
+
+    def counts(self) -> dict[str, int]:
+        """Distinct values per type, so a name repeated across history counts once."""
+        distinct = {(f.entity_type, f.value) for f in self.findings}
+        return dict(sorted(Counter(t for t, _ in distinct).items()))
+
+
+@dataclass(frozen=True)
+class Allow:
+    ACTION: ClassVar[Action] = Action.ALLOW
+    rule: str
+    reason: str
+    upstream: str
+
+
+@dataclass(frozen=True)
+class Redact:
+    ACTION: ClassVar[Action] = Action.REDACT
+    rule: str
+    reason: str
+    upstream: str
+    entity_types: frozenset[str]  # new values of these types get placeholders; vault-known values always do
+
+
+@dataclass(frozen=True)
+class Reroute:
+    ACTION: ClassVar[Action] = Action.REROUTE
+    rule: str
+    reason: str
+    upstream: str
+    already_local: bool
+
+
+@dataclass(frozen=True)
+class Hold:
+    ACTION: ClassVar[Action] = Action.HOLD
+    rule: str
+    reason: str
+    upstream: str
+
+
+@dataclass(frozen=True)
+class Block:
+    ACTION: ClassVar[Action] = Action.BLOCK
+    rule: str
+    reason: str  # no upstream: a Block cannot be forwarded by construction
+
+
+Decision = Allow | Redact | Reroute | Hold | Block
+
+
+@dataclass(frozen=True)
+class Mark:
+    start: int  # offsets into LeafDiff.real
+    end: int
+    entity_type: str
+    placeholder: str | None  # None when the value went upstream raw
+
+
+@dataclass(frozen=True)
+class LeafDiff:
+    where: str
+    direction: Literal["request", "tool_call"]
+    real: str
+    masked: str
+    marks: tuple[Mark, ...]
+
 
 class Stage(str, Enum):
     RECEIVED = "received"
@@ -250,6 +351,7 @@ class Event:
     headline: Action
     request: RequestSummary | None
     upstream: UpstreamRef | None
+    diff: tuple[LeafDiff, ...]
     stop_reason: str | None
     latency_ms: Mapping[str, int]
     error: str | None
