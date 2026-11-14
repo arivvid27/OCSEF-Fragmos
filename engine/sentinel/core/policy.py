@@ -57,7 +57,7 @@ class Rule:
 @dataclass(frozen=True)
 class Egress:
     allowed_domains: frozenset[str]  # normalized hosts, matched exactly
-    tools: Mapping[str, str]  # external tool -> the input argument that names its destination
+    tools: Mapping[str, tuple[str, ...]]  # external tool -> the input arguments that name its destinations
     rules: tuple[Rule, ...]
 
 
@@ -93,10 +93,10 @@ def load_policy(raw: Mapping[str, Any]) -> Policy:
 def _egress(raw: Mapping[str, Any], tiers: Mapping[str, Tier]) -> Egress:
     tools = {}
     for tool in raw.get("external_tools") or ():
-        if tool not in DESTINATION_ARG:
+        if tool not in DESTINATION_ARGS:
             raise PolicyError(f"egress: external tool {tool} has no destination argument; known tools are "
-                              f"{', '.join(sorted(DESTINATION_ARG))}")
-        tools[tool] = DESTINATION_ARG[tool]
+                              f"{', '.join(sorted(DESTINATION_ARGS))}")
+        tools[tool] = DESTINATION_ARGS[tool]
     allowed = set()
     for domain in raw.get("allowed_domains") or ():
         host = normalize_host(str(domain))
@@ -194,7 +194,8 @@ def _classify(types: frozenset[str], tiers: Mapping[str, Tier]) -> str:
                      for tier, names in sorted(by_tier.items(), reverse=True))
 
 
-DESTINATION_ARG = {"send_email": "to", "http_post": "url", "web_fetch": "url"}
+ADDRESS_ARGS = ("to", "cc", "bcc")
+DESTINATION_ARGS = {"send_email": ADDRESS_ARGS, "http_post": ("url",), "web_fetch": ("url",)}
 
 _ADDRESS = re.compile(r"[^@\s,;<>]+@([^@\s,;<>]+)")
 _URL_REJECT = re.compile(r"[\s\\\x00-\x1f\x7f]")  # parsers disagree on these, so the host would be a guess
@@ -217,7 +218,7 @@ def destination_host(tool: str, value: object) -> str | None:
     Missing or unparseable is None, which is never allow-listed."""
     if not isinstance(value, str):
         return None
-    if DESTINATION_ARG.get(tool) == "to":
+    if DESTINATION_ARGS.get(tool) == ADDRESS_ARGS:
         m = _ADDRESS.fullmatch(value.strip())
         return normalize_host(m.group(1)) if m else None
     if _URL_REJECT.search(value):
@@ -232,32 +233,48 @@ def destination_host(tool: str, value: object) -> str | None:
     return normalize_host(host)
 
 
+def destinations(args: tuple[str, ...], value: object) -> list[object]:
+    """Each value the call's destination arguments hold, a list counting as one value per item. None when there is
+    none, which is never allow-listed."""
+    found = []
+    for arg in args:
+        v = value.get(arg) if isinstance(value, dict) else None
+        found += v if isinstance(v, list) else [] if v is None else [v]
+    return found or [None]
+
+
 def check_egress(reply: Reply, policy: Policy, detector: Detector, vault: Vault) -> tuple[EgressVerdict, ...]:
     """One verdict per tool_use in the rehydrated reply, scanned leaf by leaf like a request, and for a value split
-    across the external calls. An email address is only the destination; a URL is also payload, since its path, query
-    and subdomains can carry data."""
-    payloads = {}
+    across the external calls. A call is allow-listed only if every destination is. An email address is only a
+    destination, so it can block but never hold; a URL is also payload, since its path, query and subdomains can carry
+    data."""
+    blockable = frozenset().union(*(r.when.entity_in or () for r in policy.egress.rules if r.action is Action.BLOCK))
+    payloads, addresses = {}, {}
     for j, block in enumerate(reply.blocks):
-        arg = policy.egress.tools.get(block.name) if isinstance(block, ToolUse) else None
-        if arg is not None:
+        args = policy.egress.tools.get(block.name) if isinstance(block, ToolUse) else None
+        if args is not None:
             leaves = (*json_leaves(block.input, ("content", j, "input")),
                       *json_leaves(dict(block.extra), ("content", j, "extra"), False))
-            payloads[j] = [leaf for leaf in leaves if not (arg == "to" and leaf.path[2:] == ("input", arg))]
+            addressed = [args == ADDRESS_ARGS and leaf.path[2:4] in [("input", a) for a in args] for leaf in leaves]
+            payloads[j] = [leaf for leaf, a in zip(leaves, addressed) if not a]
+            addresses[j] = [leaf for leaf, a in zip(leaves, addressed) if a]
     split = joined([leaf for leaves in payloads.values() for leaf in leaves], detector, policy.tiers)
     verdicts = []
     for j, block in enumerate(reply.blocks):
         if not isinstance(block, ToolUse):
             continue
-        arg = policy.egress.tools.get(block.name)
-        if arg is None:
+        args = policy.egress.tools.get(block.name)
+        if args is None:
             verdicts.append(EgressVerdict(block.id, block.name, None, frozenset(), Action.ALLOW, "internal-tool",
                                           f"{block.name} is not an external tool", "forwarded"))
             continue
-        dest = block.input.get(arg) if isinstance(block.input, dict) else None
-        host = destination_host(block.name, dest)
-        allowed = host is not None and host in policy.egress.allowed_domains
+        hosts = [destination_host(block.name, d) for d in destinations(args, block.input)]
+        unlisted = [h for h in hosts if h not in policy.egress.allowed_domains]
+        allowed, host = not unlisted, (unlisted or hosts)[0]
         findings = (*(f for leaf in payloads[j] for f in scan_leaf(leaf, detector, vault, policy.tiers)),
-                    *(f for f in split if f.path[1] == j))
+                    *(f for f in split if f.path[1] == j),
+                    *(f for leaf in addresses[j] for f in scan_leaf(leaf, detector, vault, policy.tiers)
+                      if f.entity_type in blockable))
         rule = next(r for r in policy.egress.rules if r.when.matches(findings, allowed))
         types = ", ".join(sorted(rule.when.triggered(findings)))
         where = host or "an unparseable destination"
