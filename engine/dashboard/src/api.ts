@@ -73,6 +73,16 @@ export interface LeafDiff {
   marks: Mark[]
 }
 
+export type HopState = 'active' | 'done' | 'pending' | 'blocked'
+
+/** Node ids describe themselves: agent, sentinel, model:<upstream id>, tool:<name>, domain:<host>. */
+export interface Hop {
+  src: string
+  dst: string
+  action: Action
+  state: HopState
+}
+
 export interface SentinelEvent {
   id: EventId
   session_id: string
@@ -85,6 +95,7 @@ export interface SentinelEvent {
   egress: EgressVerdict[]
   approval: ApprovalRef | null
   diff: LeafDiff[]
+  hops: Hop[]
   stop_reason: string | null
   latency_ms: Record<string, number>
   error: string | null
@@ -149,7 +160,7 @@ function isAction(value: unknown): value is Action {
 // The rest of each shape is trusted: it is our own proxy's wire contract, checked by its tests.
 function parseEvent(raw: unknown): SentinelEvent | null {
   if (!isRecord(raw) || typeof raw.id !== 'string' || !isAction(raw.headline)) return null
-  if (!Array.isArray(raw.diff) || !Array.isArray(raw.egress)) return null
+  if (!Array.isArray(raw.diff) || !Array.isArray(raw.egress) || !Array.isArray(raw.hops)) return null
   return raw as unknown as SentinelEvent
 }
 

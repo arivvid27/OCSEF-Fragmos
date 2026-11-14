@@ -394,6 +394,19 @@ class RequestSummary:
     entity_counts: Mapping[str, int]
 
 
+HopState = Literal["active", "done", "pending", "blocked"]
+
+
+@dataclass(frozen=True)
+class Hop:
+    """One edge of the data-flow graph. Node ids: agent, sentinel, model:<upstream>, tool:<name>, domain:<host>."""
+
+    src: str
+    dst: str
+    action: Action
+    state: HopState
+
+
 @dataclass(frozen=True)
 class Event:
     """One turn's public record, the dashboard contract. Rebuilt at every stage and upserted by id."""
@@ -409,6 +422,7 @@ class Event:
     egress: tuple[EgressVerdict, ...]
     approval: ApprovalRef | None
     diff: tuple[LeafDiff, ...]
+    hops: tuple[Hop, ...]
     stop_reason: str | None
     latency_ms: Mapping[str, int]
     error: str | None

@@ -9,7 +9,7 @@ from typing import Awaitable, Callable, Mapping, Protocol
 
 from .detect import Detector, detect
 from .model import (TRANSITIONS, Action, ApprovalRef, ApprovalStatus, Block, Conversation, Decision, EgressVerdict,
-                    Event, ForwardHold, HeldCall, HoldSubject, Inbound, LeafDiff, Params, Redact, Reply,
+                    Event, ForwardHold, HeldCall, HoldSubject, Hop, HopState, Inbound, LeafDiff, Params, Redact, Reply,
                     RequestSummary, Reroute, Stage, Text, ToolUse, Upstream, UpstreamRef, json_rewrite, resolution)
 from .policy import Policy, check_egress, decide
 from .vault import DIFF_CAP, Vault, raw_diffs, redact, rehydrate
@@ -86,10 +86,35 @@ def event_of(turn: Turn) -> Event:
         egress=turn.egress,
         approval=turn.approval,
         diff=turn.diff,
+        hops=hops_of(turn),
         stop_reason=turn.reply.stop_reason if turn.reply else None,
         latency_ms=dict(turn.latency_ms),
         error=turn.error,
     )
+
+
+HOP_STATE: Mapping[str, HopState] = {"forwarded": "done", "pending": "pending", "blocked": "blocked"}
+
+
+def hops_of(turn: Turn) -> tuple[Hop, ...]:
+    """The turn's path through the graph. `blocked` marks the hop into the place the data was stopped: SENTINEL for
+    a refused request, the domain for an external tool call, the tool itself when there is no domain."""
+    action = turn.request.action if turn.request else Action.ALLOW
+    if turn.upstream is None:
+        refused = turn.stage in (Stage.BLOCKED, Stage.RETURNED)
+        state: HopState = "blocked" if refused else "pending" if turn.stage is Stage.HELD else "active"
+        return (Hop("agent", "sentinel", action, state),)
+    out = [Hop("agent", "sentinel", action, "done"),
+           Hop("sentinel", f"model:{turn.upstream.id}", action, "active" if turn.stage is Stage.FORWARDED else "done")]
+    for v in turn.egress:
+        state = HOP_STATE[v.outcome]
+        tool = f"tool:{v.tool}"
+        if v.destination is None:
+            out.append(Hop("sentinel", tool, v.action, state))
+        else:
+            out += [Hop("sentinel", tool, v.action, "done" if state == "blocked" else state),
+                    Hop(tool, f"domain:{v.destination}", v.action, state)]
+    return tuple(out)
 
 
 SEVERITY = (Action.ALLOW, Action.REDACT, Action.REROUTE, Action.HOLD, Action.BLOCK)

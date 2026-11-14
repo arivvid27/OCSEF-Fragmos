@@ -5,6 +5,7 @@ interface ActionStyle {
   bar: string
   dot: string
   text: string
+  stroke: string // the same Tailwind color, for SVG
   meaning: string
 }
 
@@ -14,6 +15,7 @@ export const ACTION_STYLE: Record<Action, ActionStyle> = {
     bar: 'bg-emerald-400',
     dot: 'bg-emerald-400',
     text: 'text-emerald-300',
+    stroke: 'var(--color-emerald-400)',
     meaning: 'forwarded unchanged',
   },
   REDACT: {
@@ -21,6 +23,7 @@ export const ACTION_STYLE: Record<Action, ActionStyle> = {
     bar: 'bg-sky-400',
     dot: 'bg-sky-400',
     text: 'text-sky-300',
+    stroke: 'var(--color-sky-400)',
     meaning: 'placeholders to the cloud',
   },
   REROUTE: {
@@ -28,6 +31,7 @@ export const ACTION_STYLE: Record<Action, ActionStyle> = {
     bar: 'bg-violet-400',
     dot: 'bg-violet-400',
     text: 'text-violet-300',
+    stroke: 'var(--color-violet-400)',
     meaning: 'kept on the local model',
   },
   HOLD: {
@@ -35,6 +39,7 @@ export const ACTION_STYLE: Record<Action, ActionStyle> = {
     bar: 'bg-amber-400',
     dot: 'bg-amber-400',
     text: 'text-amber-300',
+    stroke: 'var(--color-amber-400)',
     meaning: 'waited for a human',
   },
   BLOCK: {
@@ -42,6 +47,7 @@ export const ACTION_STYLE: Record<Action, ActionStyle> = {
     bar: 'bg-red-500',
     dot: 'bg-red-500',
     text: 'text-red-300',
+    stroke: 'var(--color-red-500)',
     meaning: 'refused',
   },
 }

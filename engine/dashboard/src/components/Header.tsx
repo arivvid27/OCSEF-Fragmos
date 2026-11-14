@@ -1,5 +1,5 @@
 import { ACTIONS, type Stats, type Upstream } from '../api'
-import { isOnDevice } from '../event'
+import { isOnDevice, upstreamTitle } from '../event'
 import type { Link } from '../store'
 import { ActionChip } from './ActionChip'
 
@@ -11,7 +11,7 @@ const LINK_LABEL: Record<Link, { text: string; dot: string }> = {
 
 function UpstreamCard({ upstream, count }: { upstream: Upstream; count: number }) {
   const cloud = upstream.trust === 'cloud'
-  const title = upstream.simulated ? 'Simulated attacker' : cloud ? 'Cloud model' : 'Local model'
+  const title = upstreamTitle(upstream)
   const note = upstream.simulated
     ? 'scripted stand-in that obeys injected text'
     : cloud

@@ -3,6 +3,7 @@ import type { EventId } from './api'
 import { ApprovalModal } from './components/ApprovalModal'
 import { EventDetail } from './components/EventDetail'
 import { Feed } from './components/Feed'
+import { FlowGraph } from './components/FlowGraph'
 import { Header } from './components/Header'
 import { Toasts } from './components/Toasts'
 import { useSentinel } from './store'
@@ -25,6 +26,7 @@ export default function App() {
       <main className="grid min-h-0 flex-1 grid-cols-[minmax(26rem,5fr)_minmax(0,7fr)] gap-4 p-4">
         <Feed events={events} selectedId={selectedId} onSelect={setSelectedId} />
         <div className="flex min-h-0 flex-col gap-4">
+          <FlowGraph events={state.events} upstreams={state.upstreams} onSelect={setSelectedId} />
           <EventDetail event={selected} />
         </div>
       </main>

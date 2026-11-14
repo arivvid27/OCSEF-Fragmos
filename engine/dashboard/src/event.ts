@@ -23,6 +23,10 @@ export function isOnDevice(u: Upstream): boolean {
   return LOOPBACK.has(u.host)
 }
 
+export function upstreamTitle(u: Pick<Upstream, 'trust' | 'simulated'>): string {
+  return u.simulated ? 'Simulated attacker' : u.trust === 'cloud' ? 'Cloud model' : 'Local model'
+}
+
 export interface Segment {
   text: string
   mark: Mark | null
