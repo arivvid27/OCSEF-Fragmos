@@ -8,7 +8,7 @@ import pytest
 
 from sentinel import wire
 from sentinel.core.model import Action, Stage
-from sentinel.core.policy import Policy
+from sentinel.core.policy import load_policy
 from sentinel.core.turn import Turn, TurnContext, UpstreamError, run_turn
 from sentinel.core.vault import Vault
 from sentinel.upstreams import registry_from_env
@@ -23,7 +23,8 @@ class NoFindings:
 
 
 def context(ports):
-    return TurnContext(UPSTREAMS, ports, Policy(tiers={}), NoFindings(), Vault())
+    policy = load_policy({"tiers": {}, "rules": [{"name": "default", "action": "ALLOW"}]})
+    return TurnContext(UPSTREAMS, ports, policy, NoFindings(), Vault())
 
 
 class FakePorts:
@@ -57,7 +58,8 @@ def test_turn_returns_what_the_upstream_returned_and_logs_one_event():
     assert len({e.id for e in ports.events}) == 1
     last = ports.events[-1]
     assert (last.stage, last.headline, last.upstream.id, last.stop_reason) == (Stage.RETURNED, Action.ALLOW, "cloud", "tool_use")
-    assert wire.event_to_json(last)["upstream"] == {"id": "cloud", "trust": "cloud", "model": "deepseek-v4.1-flash"}
+    assert wire.event_to_json(last)["upstream"] == {"id": "cloud", "trust": "cloud", "model": "deepseek-v4.1-flash",
+                                                       "simulated": False, "already_local": False}
 
 
 def test_requested_upstream_header_is_honored():

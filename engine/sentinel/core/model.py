@@ -40,7 +40,8 @@ class Upstream:
     trust: Trust
     base_url: str
     model: str
-    api_key_env: str
+    api_key_env: str | None
+    simulated: bool = False  # a scripted stand-in, not a real model; the event log says so
 
 
 @dataclass(frozen=True)
@@ -217,6 +218,7 @@ class Finding:
     score: float
     value: str
     source: Literal["vault", "detector"]
+    opaque: bool = False  # found in a block SENTINEL never rewrites, so REDACT cannot cover it
 
 
 @dataclass(frozen=True)
@@ -260,7 +262,7 @@ class Reroute:
 
 
 @dataclass(frozen=True)
-class Hold:
+class ForwardHold:
     ACTION: ClassVar[Action] = Action.HOLD
     rule: str
     reason: str
@@ -274,7 +276,7 @@ class Block:
     reason: str  # no upstream: a Block cannot be forwarded by construction
 
 
-Decision = Allow | Redact | Reroute | Hold | Block
+Decision = Allow | Redact | Reroute | ForwardHold | Block
 
 
 @dataclass(frozen=True)
@@ -328,6 +330,8 @@ class UpstreamRef:
     id: str
     trust: Trust
     model: str
+    simulated: bool
+    already_local: bool  # REROUTE kept a request on the local-class upstream it asked for
 
 
 @dataclass(frozen=True)

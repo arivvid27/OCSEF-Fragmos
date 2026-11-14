@@ -19,7 +19,7 @@ def scan_leaf(leaf: Leaf, detector: Detector, vault: Vault, tiers: Mapping[str, 
     that minted them. Detector spans touching a [TYPE_N] token are placeholders, not data, and are dropped."""
     residue, known = vault.substitute(leaf.text)
     findings = [Finding(m.entity_type, tiers[m.entity_type], leaf.path, m.start, m.end, 1.0,
-                        leaf.text[m.start:m.end], "vault") for m in known]
+                        leaf.text[m.start:m.end], "vault", not leaf.rewritable) for m in known]
 
     # Residue offset -> original offset: each substituted token shifts everything after it.
     shifts, delta = [], 0
@@ -35,7 +35,7 @@ def scan_leaf(leaf: Leaf, detector: Detector, vault: Vault, tiers: Mapping[str, 
         offset = next((d for end, d in reversed(shifts) if end <= s.start), 0)
         start, end = s.start + offset, s.end + offset
         findings.append(Finding(s.entity_type, tiers[s.entity_type], leaf.path, start, end, s.score,
-                                leaf.text[start:end], "detector"))
+                                leaf.text[start:end], "detector", not leaf.rewritable))
     return findings
 
 

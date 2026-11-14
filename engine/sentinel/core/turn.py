@@ -8,8 +8,8 @@ from dataclasses import dataclass, field
 from typing import Mapping, Protocol
 
 from .detect import Detector, detect
-from .model import (TRANSITIONS, Action, Conversation, Decision, Event, Inbound, LeafDiff, Params, Redact, Reply,
-                    RequestSummary, Stage, Upstream, UpstreamRef)
+from .model import (TRANSITIONS, Action, Block, Conversation, Decision, Event, ForwardHold, Inbound, LeafDiff, Params,
+                    Redact, Reply, RequestSummary, Reroute, Stage, Text, Upstream, UpstreamRef)
 from .policy import Policy, decide
 from .vault import Vault, raw_diffs, redact, rehydrate
 
@@ -51,6 +51,7 @@ class Turn:
     stage: Stage = Stage.RECEIVED
     created_at: float = field(default_factory=time.time)
     request: RequestSummary | None = None
+    decision: Decision | None = None
     upstream: Upstream | None = None
     reply: Reply | None = None
     diff: tuple[LeafDiff, ...] = ()
@@ -73,12 +74,20 @@ def event_of(turn: Turn) -> Event:
         stage=turn.stage,
         headline=turn.request.action if turn.request else Action.ALLOW,
         request=turn.request,
-        upstream=UpstreamRef(u.id, u.trust, u.model) if u else None,
+        upstream=UpstreamRef(u.id, u.trust, u.model, u.simulated,
+                             isinstance(turn.decision, Reroute) and turn.decision.already_local) if u else None,
         diff=turn.diff,
         stop_reason=turn.reply.stop_reason if turn.reply else None,
         latency_ms=dict(turn.latency_ms),
         error=turn.error,
     )
+
+
+def blocked_reply(turn_id: str, reason: str) -> Reply:
+    """A complete Anthropic message, so a stock SDK agent shows the refusal instead of raising."""
+    return Reply(id=f"msg_sentinel_{turn_id}", model="sentinel",
+                 blocks=(Text(f"[SENTINEL] Request blocked: {reason}"),), stop_reason="end_turn",
+                 usage={"input_tokens": 0, "output_tokens": 0})
 
 
 def _ms(since: float) -> int:
@@ -101,8 +110,19 @@ async def run_turn(inbound: Inbound, ctx: TurnContext) -> Reply:
     await move(Stage.DETECTED)
 
     decision: Decision = decide(detection, ctx.policy, ctx.upstreams[inbound.upstream_id], ctx.upstreams["local"])
+    if isinstance(decision, ForwardHold):
+        # The approval wait is Milestone 4. Until it exists a hold must not forward.
+        decision = Block(decision.rule, "request approval not available yet")
+    turn.decision = decision
     turn.request = RequestSummary(decision.ACTION, decision.rule, decision.reason, detection.tier, detection.counts())
     await move(Stage.DECIDED)
+
+    if isinstance(decision, Block):
+        await move(Stage.BLOCKED)
+        turn.reply = blocked_reply(turn.id, decision.reason)
+        turn.latency_ms["total"] = _ms(started)
+        await move(Stage.RETURNED)
+        return turn.reply
 
     new = _new_since_last_assistant(conversation)
     if isinstance(decision, Redact):

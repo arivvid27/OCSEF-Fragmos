@@ -26,6 +26,8 @@ def registry_from_env(env: Mapping[str, str] = os.environ) -> dict[str, Upstream
         "local": Upstream("local", Trust.LOCAL, env.get("SENTINEL_LOCAL_BASE_URL") or GO_BASE,
                           env.get("SENTINEL_LOCAL_MODEL") or "glm-5.3-flash",
                           env.get("SENTINEL_LOCAL_API_KEY_ENV") or "OPENCODE_API_KEY"),
+        "attacker-sim": Upstream("attacker-sim", Trust.LOCAL, "http://127.0.0.1:8789", "attacker-sim", None,
+                                 simulated=True),
     }
 
 
@@ -41,7 +43,7 @@ class UpstreamClients:
             u.id: anthropic.AsyncAnthropic(
                 base_url=u.base_url,
                 # Go answers 401 for a placeholder, which reaches the agent as a normal error.
-                api_key=env.get(u.api_key_env) or "missing",
+                api_key=(u.api_key_env and env.get(u.api_key_env)) or "missing",
                 max_retries=0,
                 timeout=60,
                 default_headers={"User-Agent": USER_AGENT},

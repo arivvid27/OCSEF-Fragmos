@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 from sentinel.core.model import (Block, Conversation, Event, Inbound, Message, Opaque, Params, Reply, Text,
                                  ToolResult, ToolUse)
+from sentinel.core.policy import Policy
 
 
 class WireError(ValueError):
@@ -149,7 +150,22 @@ def reply_to_json(reply: Reply) -> dict[str, Any]:
     }
 
 
+def _plain(value: Any) -> Any:
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, frozenset):
+        return sorted(value)
+    return value
+
+
+def _to_json(obj: Any) -> dict[str, Any]:
+    return dataclasses.asdict(obj, dict_factory=lambda items: {k: _plain(v) for k, v in items})
+
+
 def event_to_json(event: Event) -> dict[str, Any]:
     """The dashboard's Event type mirrors this function's output."""
-    return dataclasses.asdict(
-        event, dict_factory=lambda items: {k: v.value if isinstance(v, Enum) else v for k, v in items})
+    return _to_json(event)
+
+
+def policy_to_json(policy: Policy) -> dict[str, Any]:
+    return _to_json(policy)

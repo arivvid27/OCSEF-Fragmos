@@ -62,8 +62,7 @@ class ShellPorts:
 
 
 def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / "policy.yaml") -> FastAPI:
-    policy = yaml.safe_load(policy_path.read_text())
-    compiled = load_policy(policy)
+    policy = load_policy(yaml.safe_load(policy_path.read_text()))
     detector = PresidioDetector()
     upstreams = registry_from_env()
     clients = UpstreamClients(upstreams)
@@ -81,7 +80,7 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
             return JSONResponse(wire.error_body("invalid_request_error", str(e)), status_code=400)
         try:
             vault = vaults.setdefault(inbound.session_id, Vault())
-            reply = await run_turn(inbound, TurnContext(upstreams, ports, compiled, detector, vault))
+            reply = await run_turn(inbound, TurnContext(upstreams, ports, policy, detector, vault))
         except UpstreamError as e:
             return JSONResponse(e.body, status_code=e.status)
         return JSONResponse(wire.reply_to_json(reply))
@@ -96,14 +95,14 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
 
     @app.get("/api/policy")
     async def get_policy() -> dict[str, Any]:
-        return policy
+        return wire.policy_to_json(policy)
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
         return {
             "cloud_credentials": clients.cloud_credentials(),
             "local_reachable": await clients.reachable("local"),
-            "rules": len(policy["rules"]),
+            "rules": len(policy.rules),
         }
 
     @app.websocket("/ws")
