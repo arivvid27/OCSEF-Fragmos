@@ -293,7 +293,7 @@ function makeKeyLookup(text: string, taken: RawSpan[]) {
   };
 }
 
-const TOKEN_RE = /\[\s*([A-Z][A-Z_]*_\d+)\s*\]/g;
+const TOKEN_RE = /\[\s*([A-Z][A-Z0-9_]*_\d+)\s*\]/g;
 
 export interface RehydratedSegment {
   text: string;
@@ -352,7 +352,7 @@ export function withholdPartialToken(text: string): string {
 export function splitTokens(text: string): { text: string; isToken: boolean }[] {
   const pieces: { text: string; isToken: boolean }[] = [];
   let cursor = 0;
-  const matches = text.matchAll(/\[[A-Z][A-Z_]*_\d+\]/g);
+  const matches = text.matchAll(/\[[A-Z][A-Z0-9_]*_\d+\]/g);
   for (const m of matches) {
     if (m.index > cursor) {
       pieces.push({ text: text.slice(cursor, m.index), isToken: false });
