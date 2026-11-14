@@ -83,7 +83,7 @@ def _mint(detection: Detection, leaf_texts: dict, vault: Vault, entity_types: fr
     most sensitive member, so no fragment of either goes upstream raw."""
     by_path: dict = {}
     for f in detection.findings:
-        if f.source == "detector" and f.entity_type in entity_types:
+        if f.source == "detector" and not f.read_only and f.entity_type in entity_types:
             by_path.setdefault(f.path, []).append(f)
     for path, findings in by_path.items():
         for group in _clusters(findings):

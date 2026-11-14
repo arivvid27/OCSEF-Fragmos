@@ -179,7 +179,7 @@ async def run_turn(inbound: Inbound, ctx: TurnContext) -> Reply:
     await ctx.ports.emit(event_of(turn))
     detected = time.monotonic()
     conversation = inbound.conversation
-    detection = detect(conversation, ctx.detector, ctx.vault, ctx.policy.tiers)
+    detection = detect(inbound, ctx.detector, ctx.vault, ctx.policy.tiers)
     turn.latency_ms["detect"] = _ms(detected)
     await move(Stage.DETECTED)
 

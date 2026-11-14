@@ -9,7 +9,7 @@ import yaml
 from sentinel import wire
 from sentinel.core.detect import detect
 from sentinel.core.model import Action, Allow, ApprovalRef, Redact, Reroute, Span, Stage
-from sentinel.core.policy import THINKING_REASON, PolicyError, decide, load_policy
+from sentinel.core.policy import READ_ONLY_REASON, PolicyError, decide, load_policy
 from sentinel.core.turn import TurnContext, run_turn
 from sentinel.core.vault import Vault
 from sentinel.upstreams import registry_from_env
@@ -31,6 +31,8 @@ class FakeDetector:
     def scan(self, text, entity_types):
         return [Span(t, m.start(), m.end(), 0.9) for v, t in VALUES.items() if t in entity_types
                 for m in re.finditer(re.escape(v), text)]
+
+    patterns = scan
 
 
 class FakePorts:
@@ -107,7 +109,7 @@ def thinking_history(thought):
 
 def test_redact_escalates_when_a_thinking_block_holds_a_redacted_type():
     d = decision_for("Email Jeff Serrano the rota.", history=thinking_history("On call is Jeff Serrano."))
-    assert d == Reroute("confidential-redacted", THINKING_REASON, "local", False)
+    assert d == Reroute("confidential-redacted", READ_ONLY_REASON, "local", False)
 
 
 def test_thinking_without_a_redacted_type_still_redacts():

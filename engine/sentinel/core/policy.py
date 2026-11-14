@@ -16,7 +16,7 @@ from .model import (Action, Allow, Block, Decision, Detection, EgressVerdict, Fi
                     Reroute, Tier, ToolUse, Trust, Upstream, json_leaves)
 from .vault import Vault
 
-THINKING_REASON = "sensitive data inside a thinking block, which SENTINEL never modifies"
+READ_ONLY_REASON = "sensitive data where SENTINEL cannot put a placeholder, so it stays local"
 
 
 class PolicyError(ValueError):
@@ -159,8 +159,8 @@ def decide(detection: Detection, policy: Policy, requested_upstream: Upstream, l
         case Action.ALLOW:
             return Allow(rule.name, _allow_reason(findings, policy.tiers), requested_upstream.id)
         case Action.REDACT:
-            if any(f.opaque and (f.entity_type in types or f.source == "vault") for f in findings):
-                return reroute(THINKING_REASON)
+            if any(f.read_only and (f.entity_type in types or f.source == "vault") for f in findings):
+                return reroute(READ_ONLY_REASON)
             return Redact(rule.name, _reason(rule, types, policy.tiers, "it is replaced with placeholders",
                                              "they are replaced with placeholders"), requested_upstream.id, types)
         case Action.REROUTE:
@@ -247,8 +247,9 @@ def check_egress(reply: Reply, policy: Policy, detector: Detector, vault: Vault)
         dest = block.input.get(arg) if isinstance(block.input, dict) else None
         host = destination_host(block.name, dest)
         allowed = host is not None and host in policy.egress.allowed_domains
-        findings = tuple(f for leaf in json_leaves(block.input, ("content", j, "input"))
-                         if not (arg == "to" and leaf.path[3:] == (arg,))
+        payload = (*json_leaves(block.input, ("content", j, "input")), *json_leaves(dict(block.extra),
+                                                                                  ("content", j, "extra"), False))
+        findings = tuple(f for leaf in payload if not (arg == "to" and leaf.path[2:] == ("input", arg))
                          for f in scan_leaf(leaf, detector, vault, policy.tiers))
         rule = next(r for r in policy.egress.rules if r.when.matches(findings, allowed))
         types = ", ".join(sorted(rule.when.triggered(findings)))

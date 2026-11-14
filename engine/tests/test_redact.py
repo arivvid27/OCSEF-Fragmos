@@ -32,6 +32,8 @@ class FakeDetector:
         spans += [Span("EMAIL_ADDRESS", m.start(), m.end(), 0.9) for m in EMAILS.finditer(text)]
         return [s for s in spans if s.entity_type in entity_types]
 
+    patterns = scan
+
 
 class EchoUpstream:
     """Plays a model that saw only placeholders: it echoes them in text and in a nested send_email call."""

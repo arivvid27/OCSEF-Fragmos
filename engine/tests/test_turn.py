@@ -21,6 +21,8 @@ class NoFindings:
     def scan(self, text, entity_types):
         return ()
 
+    patterns = scan
+
 
 def context(ports):
     policy = load_policy({"tiers": {}, "rules": [{"name": "default", "action": "ALLOW"}]})

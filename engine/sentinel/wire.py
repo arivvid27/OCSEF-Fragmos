@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 from enum import Enum
 from typing import Any, Mapping
 from urllib.parse import urlsplit
@@ -16,6 +17,11 @@ class WireError(ValueError):
     """Becomes HTTP 400 with an Anthropic-shaped invalid_request_error body."""
 
 
+# Forwarded verbatim, so each must be a shape that cannot carry prose; anthropic-beta is also scanned as a leaf.
+FORWARDED_HEADERS = {"anthropic-version": re.compile(r"\d{4}-\d{2}-\d{2}"),
+                     "anthropic-beta": re.compile(r"[a-z0-9-]+(,[a-z0-9-]+)*")}
+
+
 def error_body(kind: str, message: str) -> dict[str, Any]:
     return {"type": "error", "error": {"type": kind, "message": message}}
 
@@ -24,16 +30,23 @@ def _rest(raw: Mapping[str, Any], *known: str) -> dict[str, Any]:
     return {k: v for k, v in raw.items() if k not in known}
 
 
+def _str(raw: Mapping[str, Any], key: str) -> str:
+    value = raw[key]
+    if not isinstance(value, str):
+        raise WireError(f"{raw['type']}.{key} must be a string")
+    return value
+
+
 def _block(raw: Any) -> Block:
     if not isinstance(raw, dict) or not isinstance(raw.get("type"), str):
         raise WireError("each content block must be an object with a type")
     match raw["type"]:
         case "text":
-            return Text(raw["text"], _rest(raw, "type", "text"))
+            return Text(_str(raw, "text"), _rest(raw, "type", "text"))
         case "tool_use":
-            return ToolUse(raw["id"], raw["name"], raw["input"], _rest(raw, "type", "id", "name", "input"))
+            return ToolUse(_str(raw, "id"), _str(raw, "name"), raw["input"], _rest(raw, "type", "id", "name", "input"))
         case "tool_result":
-            return ToolResult(raw["tool_use_id"], _content(raw.get("content", [])),
+            return ToolResult(_str(raw, "tool_use_id"), _content(raw.get("content", [])),
                               _rest(raw, "type", "tool_use_id", "content"))
         case _:
             return Opaque(raw)
@@ -70,6 +83,15 @@ def parse_request(body: Any, headers: Mapping[str, str], known_upstreams: frozen
     messages = body.get("messages")
     if not isinstance(messages, list) or not messages:
         raise WireError("messages must be a non-empty list")
+    tools = body.get("tools") or []
+    if not isinstance(tools, list) or not all(isinstance(t, dict) for t in tools):
+        raise WireError("tools must be a list of objects")
+    stop_sequences = body.get("stop_sequences") or []
+    if not isinstance(stop_sequences, list) or not all(isinstance(s, str) for s in stop_sequences):
+        raise WireError("stop_sequences must be a list of strings")
+    for name, shape in FORWARDED_HEADERS.items():
+        if headers.get(name) is not None and not shape.fullmatch(headers[name]):
+            raise WireError(f"{name} must match {shape.pattern}")
     try:
         parsed = tuple(Message(_role(m), _content(m.get("content"))) for m in messages)
         system = _system(body.get("system"))
@@ -81,8 +103,8 @@ def parse_request(body: Any, headers: Mapping[str, str], known_upstreams: frozen
         conversation=Conversation(system, parsed),
         params=Params(
             max_tokens=max_tokens,
-            tools=tuple(body.get("tools") or ()),
-            stop_sequences=tuple(body.get("stop_sequences") or ()),
+            tools=tuple(tools),
+            stop_sequences=tuple(stop_sequences),
             anthropic_version=headers.get("anthropic-version"),
             anthropic_beta=headers.get("anthropic-beta"),
         ),

@@ -5,8 +5,9 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 
-from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
+from presidio_analyzer import AnalyzerEngine, EntityRecognizer, Pattern, PatternRecognizer
 from presidio_analyzer.nlp_engine import NlpEngineProvider
+from presidio_analyzer.predefined_recognizers import SpacyRecognizer
 
 from sentinel.core.model import Span
 
@@ -47,9 +48,24 @@ class PresidioDetector:
             supported_entity="EMAIL_ADDRESS", patterns=[EMAIL_PATTERN], global_regex_flags=CASE_SENSITIVE))
         self._supported = frozenset(self._engine.get_supported_entities(language="en"))
         self._scan = lru_cache(maxsize=4096)(self._analyze)
+        self._without_ner = [r for r in self._engine.registry.get_recognizers(language="en", all_fields=True)
+                             if not isinstance(r, SpacyRecognizer)]
+        self._patterns = lru_cache(maxsize=4096)(self._match)
 
     def scan(self, text: str, entity_types: frozenset[str]) -> tuple[Span, ...]:
         return self._scan(text, entity_types)
+
+    def patterns(self, text: str, entity_types: frozenset[str]) -> tuple[Span, ...]:
+        return self._patterns(text, entity_types)
+
+    def _match(self, text: str, entity_types: frozenset[str]) -> tuple[Span, ...]:
+        """Calls the recognizers directly: AnalyzerEngine.analyze always runs the spaCy pipeline first."""
+        results = []
+        for recognizer in self._without_ner:
+            wanted = [e for e in recognizer.supported_entities if e in entity_types]
+            if wanted:
+                results += recognizer.analyze(text, wanted, None)
+        return tuple(Span(r.entity_type, r.start, r.end, r.score) for r in EntityRecognizer.remove_duplicates(results))
 
     def _analyze(self, text: str, entity_types: frozenset[str]) -> tuple[Span, ...]:
         """Asking only for the policy's types is what keeps URL, US_ITIN and US_DRIVER_LICENSE out."""

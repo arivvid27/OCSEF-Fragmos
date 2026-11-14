@@ -71,10 +71,6 @@ class Opaque:
 
     raw: Mapping[str, JSON]
 
-    @property
-    def scan_text(self) -> str | None:
-        return self.raw.get("thinking") if self.raw.get("type") == "thinking" else None
-
 
 Block = Text | ToolUse | ToolResult | Opaque
 
@@ -93,17 +89,24 @@ class Leaf:
     path: LeafPath
     text: str
     rewritable: bool
+    identifier: bool = False  # a tool name, id, header, or number: NER reads `read_file` as a LOCATION
 
 
-def json_leaves(value: JSON, path: LeafPath = ()) -> Iterator[Leaf]:
+def json_leaves(value: JSON, path: LeafPath = (), rewritable: bool = True) -> Iterator[Leaf]:
+    """Every string, plus each object's keys (one leaf at the object's own path) and every number. Keys and
+    numbers are read-only: rewriting them would change the shape."""
     if isinstance(value, str):
-        yield Leaf(path, value, True)
+        yield Leaf(path, value, rewritable)
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        yield Leaf(path, str(value), False, identifier=True)
     elif isinstance(value, dict):
+        if value:
+            yield Leaf(path, "\n".join(value), False)
         for k, v in value.items():
-            yield from json_leaves(v, (*path, k))
+            yield from json_leaves(v, (*path, k), rewritable)
     elif isinstance(value, list):
         for i, v in enumerate(value):
-            yield from json_leaves(v, (*path, i))
+            yield from json_leaves(v, (*path, i), rewritable)
 
 
 def json_rewrite(value: JSON, fn: Callable[[Leaf], str], path: LeafPath = ()) -> JSON:
@@ -117,16 +120,23 @@ def json_rewrite(value: JSON, fn: Callable[[Leaf], str], path: LeafPath = ()) ->
 
 
 def _block_leaves(block: Block, path: LeafPath) -> Iterator[Leaf]:
+    """Every value the block puts on the wire. Only text and tool_use.input strings are rewritable."""
     match block:
-        case Text(text=t):
+        case Text(text=t, extra=x):
             yield Leaf(path, t, True)
-        case ToolUse(input=inp):
+            yield from json_leaves(dict(x), (*path, "extra"), False)
+        case ToolUse(id=i, name=n, input=inp, extra=x):
+            yield Leaf((*path, "id"), i, False, identifier=True)
+            yield Leaf((*path, "name"), n, False, identifier=True)
             yield from json_leaves(inp, (*path, "input"))
-        case ToolResult(content=content):
-            for i, b in enumerate(content):
-                yield from _block_leaves(b, (*path, "content", i))
-        case Opaque() if block.scan_text is not None:
-            yield Leaf(path, block.scan_text, False)
+            yield from json_leaves(dict(x), (*path, "extra"), False)
+        case ToolResult(tool_use_id=i, content=content, extra=x):
+            yield Leaf((*path, "tool_use_id"), i, False, identifier=True)
+            for k, b in enumerate(content):
+                yield from _block_leaves(b, (*path, "content", k))
+            yield from json_leaves(dict(x), (*path, "extra"), False)
+        case Opaque(raw=raw):
+            yield from json_leaves(dict(raw), path, False)
 
 
 def _block_rewrite(block: Block, path: LeafPath, fn: Callable[[Leaf], str]) -> Block:
@@ -147,7 +157,7 @@ class Conversation:
     messages: tuple[Message, ...]
 
     def leaves(self) -> Iterator[Leaf]:
-        """Every string SENTINEL may scan. Keys of tool_use.input are never leaves; thinking is read-only."""
+        """Every value of the system prompt and messages that SENTINEL forwards, in wire order."""
         for i, t in enumerate(self.system):
             yield from _block_leaves(t, ("system", i))
         for i, m in enumerate(self.messages):
@@ -172,8 +182,18 @@ class Params:
     max_tokens: int
     tools: tuple[JSON, ...] = ()
     stop_sequences: tuple[str, ...] = ()
-    anthropic_version: str | None = None
+    anthropic_version: str | None = None  # wire.parse_request admits only a date, which cannot carry data
     anthropic_beta: str | None = None
+
+    def leaves(self) -> Iterator[Leaf]:
+        """Every forwarded knob that can carry text. All read-only: SENTINEL never rewrites a tool definition."""
+        for i, tool in enumerate(self.tools):
+            for leaf in json_leaves(tool, ("tools", i), False):
+                yield replace(leaf, identifier=True) if leaf.path == ("tools", i, "name") else leaf
+        for i, s in enumerate(self.stop_sequences):
+            yield Leaf(("stop_sequences", i), s, False)
+        if self.anthropic_beta:
+            yield Leaf(("anthropic_beta",), self.anthropic_beta, False, identifier=True)
 
 
 @dataclass(frozen=True)
@@ -182,6 +202,11 @@ class Inbound:
     upstream_id: str
     conversation: Conversation
     params: Params
+
+    def leaves(self) -> Iterator[Leaf]:
+        """Everything this request would put on the wire to an upstream."""
+        yield from self.conversation.leaves()
+        yield from self.params.leaves()
 
 
 @dataclass(frozen=True)
@@ -218,7 +243,7 @@ class Finding:
     score: float
     value: str
     source: Literal["vault", "detector"]
-    opaque: bool = False  # found in a block SENTINEL never rewrites, so REDACT cannot cover it
+    read_only: bool = False  # in a place SENTINEL never rewrites, so REDACT cannot cover it
 
 
 @dataclass(frozen=True)

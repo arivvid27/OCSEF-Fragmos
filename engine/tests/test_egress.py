@@ -30,6 +30,8 @@ class FakeDetector:
         return [Span(t, m.start(), m.end(), 0.9) for v, t in VALUES.items() if t in entity_types
                 for m in re.finditer(re.escape(v), text)]
 
+    patterns = scan
+
 
 def tool_use(name, id="toolu_1", **input):
     return {"type": "tool_use", "id": id, "name": name, "input": input}

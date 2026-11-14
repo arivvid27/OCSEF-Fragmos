@@ -89,7 +89,10 @@ def test_bad_requests_are_rejected(body, headers):
 def test_rewrite_touches_text_and_tool_input_strings_but_never_thinking():
     body = request(messages=[{"role": "user", "content": "alice"}, {"role": "assistant", "content": CAPTURED["content"]}])
     conv = wire.parse_request(body, {}, UPSTREAMS).conversation
-    assert [leaf.rewritable for leaf in conv.leaves()] == [True, False, True]
+    leaves = list(conv.leaves())
+    assert [leaf.text for leaf in leaves if leaf.rewritable] == ["alice", "primes.txt"]
+    read_only = {leaf.text for leaf in leaves if not leaf.rewritable}
+    assert {CAPTURED["content"][0]["thinking"], "read_file", "call_e18a2dd95d5840dba2d9eb17", "path"} <= read_only
 
     upper = conv.rewrite(lambda leaf: leaf.text.upper())
     assert upper.messages[0].content == (Text("ALICE"),)
@@ -105,3 +108,52 @@ def test_dashboard_sees_upstream_host_but_not_its_url_or_key_name():
         {"id": "local", "trust": "local", "model": "glm-5.3-flash", "simulated": False, "host": "opencode.ai"},
         {"id": "attacker-sim", "trust": "local", "model": "attacker-sim", "simulated": True, "host": "127.0.0.1"},
     ]
+
+
+PROTOCOL = {"messages", "role", "content", "system", "tools", "stop_sequences", "type", "text", "id", "name", "input",
+            "tool_use_id", "user", "assistant", "tool_use", "tool_result"}
+
+
+def test_every_value_sent_upstream_is_a_scanned_leaf():
+    """The structural form of "everything SENTINEL forwards is seen by detection"."""
+    document = {"type": "document", "source": {"type": "text", "media_type": "text/plain", "data": "doc body"}}
+    body = request(
+        system=[{"type": "text", "text": "sys", "cache_control": {"type": "ephemeral"},
+                 "citations": [{"cited_text": "cited in system"}]}],
+        tools=[{"name": "save", "description": "Save it.", "input_schema": {
+            "type": "object", "properties": {"p": {"type": "integer", "default": 7, "enum": ["one"]}}}}],
+        stop_sequences=["STOP"],
+        messages=[
+            {"role": "user", "content": [
+                {"type": "text", "text": "hello", "citations": [{"cited_text": "cited in user", "start": 3}]},
+                document,
+                {"type": "image", "source": {"type": "url", "url": "https://images.invalid/a.png"}},
+                {"type": "search_result", "source": "kb://1", "title": "kb", "content": [{"type": "text", "text": "kb"}]},
+            ]},
+            {"role": "assistant", "content": [
+                *CAPTURED["content"], {"type": "redacted_thinking", "data": "opaque blob"},
+                {"type": "tool_use", "id": "toolu_9", "name": "save", "input": {"k": [1, 2.5, "v"], "n": None},
+                 "metadata": "meta"}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_9", "is_error": "maybe",
+                                          "content": [{"type": "text", "text": "saved"}, document]}]},
+        ])
+    inbound = wire.parse_request(body, {"anthropic-beta": "files-api-2025-04-14"}, UPSTREAMS)
+    leaves = list(inbound.leaves())
+    texts = {leaf.text for leaf in leaves}
+    keys = {line for leaf in leaves for line in leaf.text.split("\n")}
+    sent = wire.to_upstream(inbound.conversation, inbound.params)
+    del sent["max_tokens"], sent["tool_choice"]
+
+    def scalars(value):
+        if isinstance(value, dict):
+            for k, v in value.items():
+                yield k, keys
+                yield from scalars(v)
+        elif isinstance(value, list):
+            for v in value:
+                yield from scalars(v)
+        elif isinstance(value, str) or (isinstance(value, (int, float)) and not isinstance(value, bool)):
+            yield str(value), texts
+
+    assert {v for v, scanned in scalars(sent) if v not in scanned and v not in PROTOCOL} == set()
+    assert "files-api-2025-04-14" in texts
