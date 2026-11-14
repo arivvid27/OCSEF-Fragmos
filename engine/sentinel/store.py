@@ -15,6 +15,11 @@ class Store:
         self._db = sqlite3.connect(path, check_same_thread=False)
         self._db.executescript(SCHEMA.read_text())
 
+    @property
+    def db(self) -> sqlite3.Connection:
+        """Shared with ApprovalDesk, the only writer of approvals."""
+        return self._db
+
     def upsert_event(self, event: dict[str, Any]) -> None:
         """seq is assigned on first insert only, so feed order is creation order."""
         upstream = event["upstream"]["id"] if event["upstream"] else None

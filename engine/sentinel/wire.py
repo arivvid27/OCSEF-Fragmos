@@ -6,7 +6,7 @@ import dataclasses
 from enum import Enum
 from typing import Any, Mapping
 
-from sentinel.core.model import (Block, Conversation, Event, Inbound, Message, Opaque, Params, Reply, Text,
+from sentinel.core.model import (Block, Conversation, Event, HoldSubject, Inbound, Message, Opaque, Params, Reply, Text,
                                  ToolResult, ToolUse)
 from sentinel.core.policy import Policy
 
@@ -165,6 +165,10 @@ def _to_json(obj: Any) -> dict[str, Any]:
 def event_to_json(event: Event) -> dict[str, Any]:
     """The dashboard's Event type mirrors this function's output."""
     return _to_json(event)
+
+
+def hold_subject_to_json(subject: HoldSubject) -> dict[str, Any]:
+    return _to_json(subject)
 
 
 def policy_to_json(policy: Policy) -> dict[str, Any]:

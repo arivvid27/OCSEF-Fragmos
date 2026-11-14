@@ -7,7 +7,7 @@ import pytest
 import yaml
 
 from sentinel import wire
-from sentinel.core.model import Action, Span
+from sentinel.core.model import Action, ApprovalRef, Span
 from sentinel.core.policy import load_policy
 from sentinel.core.turn import TurnContext, run_turn
 from sentinel.core.vault import REDACTION_NOTE, Vault
@@ -56,6 +56,11 @@ class EchoUpstream:
             "stop_reason": "tool_use", "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 1},
         })
         return wire.parse_reply(json.loads(json.dumps(self.produced[-1])))
+
+    async def hold(self, subject, on_open):
+        """The send_email names people, so egress holds it; a reviewer approves."""
+        await on_open(ApprovalRef("a", "pending", 0.0, 60.0))
+        return "approved"
 
     async def emit(self, event):
         self.events.append(event)
@@ -112,7 +117,8 @@ def test_event_records_tier_counts_action_and_both_diff_directions():
     event = wire.event_to_json(agent.ports.events[-1])
     json.dumps(event)
 
-    assert event["headline"] == "REDACT" and event["request"]["rule"] == "confidential-redacted"
+    assert event["request"]["action"] == "REDACT" and event["request"]["rule"] == "confidential-redacted"
+    assert event["headline"] == "HOLD" and event["egress"][0]["outcome"] == "forwarded"
     assert event["request"]["entity_counts"] == {"EMAIL_ADDRESS": 3, "PERSON": 3}
     assert event["request"]["tier"] == 2
     request, *calls = event["diff"]
@@ -172,11 +178,8 @@ def test_a_known_value_alone_is_still_redacted():
 
 
 @pytest.fixture(scope="module")
-def found():
-    from sentinel.presidio_detector import PresidioDetector
-
-    detector = PresidioDetector()
-    return lambda text: {(s.entity_type, text[s.start:s.end]) for s in detector.scan(text, frozenset(POLICY.tiers))}
+def found(presidio):
+    return lambda text: {(s.entity_type, text[s.start:s.end]) for s in presidio.scan(text, frozenset(POLICY.tiers))}
 
 
 class TestPresidioDetector:

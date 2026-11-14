@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass, field
-from typing import Mapping, Protocol
+from dataclasses import dataclass, field, replace
+from typing import Awaitable, Callable, Mapping, Protocol
 
 from .detect import Detector, detect
-from .model import (TRANSITIONS, Action, Block, Conversation, Decision, Event, ForwardHold, Inbound, LeafDiff, Params,
-                    Redact, Reply, RequestSummary, Reroute, Stage, Text, Upstream, UpstreamRef)
-from .policy import Policy, decide
-from .vault import Vault, raw_diffs, redact, rehydrate
+from .model import (TRANSITIONS, Action, ApprovalRef, ApprovalStatus, Block, Conversation, Decision, EgressVerdict,
+                    Event, ForwardHold, HeldCall, HoldSubject, Inbound, LeafDiff, Params, Redact, Reply,
+                    RequestSummary, Reroute, Stage, Text, ToolUse, Upstream, UpstreamRef, json_rewrite, resolution)
+from .policy import Policy, check_egress, decide
+from .vault import DIFF_CAP, Vault, raw_diffs, redact, rehydrate
 
 
 class UpstreamError(Exception):
@@ -25,6 +26,10 @@ class UpstreamError(Exception):
 class Ports(Protocol):
     async def call_upstream(self, upstream: Upstream, conversation: Conversation, params: Params,
                             session_id: str) -> Reply: ...
+
+    async def hold(self, subject: HoldSubject, on_open: Callable[[ApprovalRef], Awaitable[None]]) -> ApprovalStatus:
+        """Wait for a reviewer or the deadline. Calls on_open once the approval exists, before waiting."""
+        ...
 
     async def emit(self, event: Event) -> None:
         """Upsert by event.id and broadcast. Each event is a full snapshot, so the same one twice is harmless."""
@@ -54,6 +59,8 @@ class Turn:
     decision: Decision | None = None
     upstream: Upstream | None = None
     reply: Reply | None = None
+    egress: tuple[EgressVerdict, ...] = ()
+    approval: ApprovalRef | None = None
     diff: tuple[LeafDiff, ...] = ()
     latency_ms: dict[str, int] = field(default_factory=dict)
     error: str | None = None
@@ -72,15 +79,48 @@ def event_of(turn: Turn) -> Event:
         created_at=turn.created_at,
         updated_at=time.time(),
         stage=turn.stage,
-        headline=turn.request.action if turn.request else Action.ALLOW,
+        headline=headline(turn),
         request=turn.request,
         upstream=UpstreamRef(u.id, u.trust, u.model, u.simulated,
                              isinstance(turn.decision, Reroute) and turn.decision.already_local) if u else None,
+        egress=turn.egress,
+        approval=turn.approval,
         diff=turn.diff,
         stop_reason=turn.reply.stop_reason if turn.reply else None,
         latency_ms=dict(turn.latency_ms),
         error=turn.error,
     )
+
+
+SEVERITY = (Action.ALLOW, Action.REDACT, Action.REROUTE, Action.HOLD, Action.BLOCK)
+
+
+def headline(turn: Turn) -> Action:
+    """The most severe of the request action and the egress outcomes. A refused approval counts as BLOCK."""
+    actions = [turn.request.action if turn.request else Action.ALLOW]
+    actions += [Action.BLOCK if v.outcome == "blocked" else v.action for v in turn.egress]
+    if turn.approval and turn.approval.status in ("denied", "expired"):
+        actions.append(Action.BLOCK)
+    return max(actions, key=SEVERITY.index)
+
+
+def refusal(approval: ApprovalRef) -> str:
+    if approval.status == "denied":
+        return "denied by reviewer"
+    return f"approval expired after {approval.expires_at - approval.created_at:.3g} s"
+
+
+def tool_calls_blocked(reply: Reply, reason: str) -> Reply:
+    """Every tool_use goes, not only the offending one: the model planned the batch together."""
+    kept = tuple(b for b in reply.blocks if not isinstance(b, ToolUse))
+    return replace(reply, blocks=(*kept, Text(f"[SENTINEL] Tool call blocked: {reason}")), stop_reason="end_turn")
+
+
+def _held_calls(reply: Reply, held: list[EgressVerdict]) -> tuple[HeldCall, ...]:
+    inputs = {b.id: b.input for b in reply.blocks if isinstance(b, ToolUse)}
+    return tuple(HeldCall(v.tool_use_id, v.tool, v.destination,
+                          json_rewrite(inputs[v.tool_use_id], lambda leaf: leaf.text[:DIFF_CAP]), v.entities, v.rule,
+                          v.reason) for v in held)
 
 
 def blocked_reply(turn_id: str, reason: str) -> Reply:
@@ -102,6 +142,15 @@ async def run_turn(inbound: Inbound, ctx: TurnContext) -> Reply:
         turn.advance(stage)
         await ctx.ports.emit(event_of(turn))
 
+    async def hold(subject: HoldSubject) -> ApprovalRef:
+        async def opened(ref: ApprovalRef) -> None:
+            turn.approval = ref
+            await ctx.ports.emit(event_of(turn))
+
+        status = await ctx.ports.hold(subject, opened)
+        turn.approval = replace(turn.approval, status=status)
+        return turn.approval
+
     await ctx.ports.emit(event_of(turn))
     detected = time.monotonic()
     conversation = inbound.conversation
@@ -110,16 +159,20 @@ async def run_turn(inbound: Inbound, ctx: TurnContext) -> Reply:
     await move(Stage.DETECTED)
 
     decision: Decision = decide(detection, ctx.policy, ctx.upstreams[inbound.upstream_id], ctx.upstreams["local"])
-    if isinstance(decision, ForwardHold):
-        # The approval wait is Milestone 4. Until it exists a hold must not forward.
-        decision = Block(decision.rule, "request approval not available yet")
     turn.decision = decision
     turn.request = RequestSummary(decision.ACTION, decision.rule, decision.reason, detection.tier, detection.counts())
     await move(Stage.DECIDED)
 
-    if isinstance(decision, Block):
+    blocked = decision.reason if isinstance(decision, Block) else None
+    if isinstance(decision, ForwardHold):
+        await move(Stage.HELD)
+        approval = await hold(HoldSubject(turn.id, "request", decision.rule, decision.reason,
+                                          frozenset(detection.counts())))
+        if resolution(approval.status) == "blocked":
+            blocked = refusal(approval)
+    if blocked is not None:
         await move(Stage.BLOCKED)
-        turn.reply = blocked_reply(turn.id, decision.reason)
+        turn.reply = blocked_reply(turn.id, blocked)
         turn.latency_ms["total"] = _ms(started)
         await move(Stage.RETURNED)
         return turn.reply
@@ -145,7 +198,23 @@ async def run_turn(inbound: Inbound, ctx: TurnContext) -> Reply:
     reply, tool_diff = rehydrate(model_reply, ctx.vault)
     turn.reply, turn.diff = reply, request_diff + tool_diff
     await move(Stage.REHYDRATED)
+    turn.egress = check_egress(reply, ctx.policy, ctx.detector, ctx.vault)
     await move(Stage.EGRESS_CHECKED)
+
+    refused = "; ".join(v.reason for v in turn.egress if v.action is Action.BLOCK) or None
+    held = [v for v in turn.egress if v.outcome == "pending"]
+    if refused is None and held:
+        await move(Stage.TOOL_HELD)
+        approval = await hold(HoldSubject(turn.id, "tool_calls", held[0].rule, "; ".join(v.reason for v in held),
+                                          frozenset().union(*(v.entities for v in held)), _held_calls(reply, held)))
+        outcome = resolution(approval.status)
+        turn.egress = tuple(replace(v, outcome=outcome) if v.outcome == "pending" else v for v in turn.egress)
+        if outcome == "blocked":
+            refused = refusal(approval)
+    if refused is not None:
+        turn.egress = tuple(replace(v, outcome="blocked") for v in turn.egress)
+        reply = tool_calls_blocked(reply, refused)
+    turn.reply = reply
     turn.latency_ms["total"] = _ms(started)
     await move(Stage.RETURNED)
     return reply

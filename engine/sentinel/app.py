@@ -5,14 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import yaml
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from sentinel import wire
-from sentinel.core.model import Conversation, Event, Params, Reply, Upstream
+from sentinel.approvals import HOLD_SECONDS, ApprovalDesk
+from sentinel.core.model import ApprovalRef, ApprovalStatus, Conversation, Event, HoldSubject, Params, Reply, Upstream
 from sentinel.core.policy import load_policy
 from sentinel.core.turn import TurnContext, UpstreamError, run_turn
 from sentinel.core.vault import Vault
@@ -48,12 +49,15 @@ class Hub:
 
 
 class ShellPorts:
-    def __init__(self, clients: UpstreamClients, store: Store, hub: Hub) -> None:
-        self._clients, self._store, self._hub = clients, store, hub
+    def __init__(self, clients: UpstreamClients, store: Store, hub: Hub, desk: ApprovalDesk) -> None:
+        self._clients, self._store, self._hub, self._desk = clients, store, hub, desk
 
     async def call_upstream(self, upstream: Upstream, conversation: Conversation, params: Params,
                             session_id: str) -> Reply:
         return await self._clients.call_upstream(upstream, conversation, params, session_id)
+
+    async def hold(self, subject: HoldSubject, on_open: Callable[[ApprovalRef], Awaitable[None]]) -> ApprovalStatus:
+        return await self._desk.hold(subject, on_open)
 
     async def emit(self, event: Event) -> None:
         data = wire.event_to_json(event)
@@ -61,14 +65,17 @@ class ShellPorts:
         await self._hub.broadcast({"kind": "event", "data": data})
 
 
-def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / "policy.yaml") -> FastAPI:
+def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / "policy.yaml",
+               hold_seconds: float = HOLD_SECONDS) -> FastAPI:
     policy = load_policy(yaml.safe_load(policy_path.read_text()))
     detector = PresidioDetector()
     upstreams = registry_from_env()
     clients = UpstreamClients(upstreams)
     store = Store(db_path)
     hub = Hub()
-    ports = ShellPorts(clients, store, hub)
+    desk = ApprovalDesk(store.db, hub.broadcast, hold_seconds)
+    desk.expire_orphans()
+    ports = ShellPorts(clients, store, hub, desk)
     vaults: dict[str, Vault] = {}  # by x-sentinel-session
     app = FastAPI(title="SENTINEL")
 
@@ -92,6 +99,26 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
     @app.get("/api/stats")
     async def stats() -> dict[str, dict[str, int]]:
         return store.stats()
+
+    @app.get("/api/approvals")
+    async def approvals() -> list[dict[str, Any]]:
+        return desk.list()
+
+    @app.post("/api/approvals/{approval_id}")
+    async def decide(approval_id: str, request: Request) -> JSONResponse:
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            body = None
+        decision = body.get("decision") if isinstance(body, dict) else None
+        verdict = {"approve": "approved", "deny": "denied"}.get(decision) if isinstance(decision, str) else None
+        if verdict is None:
+            return JSONResponse({"error": 'body must be {"decision": "approve" | "deny"}'}, status_code=400)
+        try:
+            accepted, row = await desk.decide(approval_id, verdict)
+        except KeyError:
+            return JSONResponse({"error": f"no approval {approval_id}"}, status_code=404)
+        return JSONResponse(row, status_code=200 if accepted else 409)
 
     @app.get("/api/policy")
     async def get_policy() -> dict[str, Any]:

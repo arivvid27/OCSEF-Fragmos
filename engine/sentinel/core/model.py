@@ -95,24 +95,24 @@ class Leaf:
     rewritable: bool
 
 
-def _json_leaves(value: JSON, path: LeafPath) -> Iterator[Leaf]:
+def json_leaves(value: JSON, path: LeafPath = ()) -> Iterator[Leaf]:
     if isinstance(value, str):
         yield Leaf(path, value, True)
     elif isinstance(value, dict):
         for k, v in value.items():
-            yield from _json_leaves(v, (*path, k))
+            yield from json_leaves(v, (*path, k))
     elif isinstance(value, list):
         for i, v in enumerate(value):
-            yield from _json_leaves(v, (*path, i))
+            yield from json_leaves(v, (*path, i))
 
 
-def _json_rewrite(value: JSON, path: LeafPath, fn: Callable[[Leaf], str]) -> JSON:
+def json_rewrite(value: JSON, fn: Callable[[Leaf], str], path: LeafPath = ()) -> JSON:
     if isinstance(value, str):
         return fn(Leaf(path, value, True))
     if isinstance(value, dict):
-        return {k: _json_rewrite(v, (*path, k), fn) for k, v in value.items()}
+        return {k: json_rewrite(v, fn, (*path, k)) for k, v in value.items()}
     if isinstance(value, list):
-        return [_json_rewrite(v, (*path, i), fn) for i, v in enumerate(value)]
+        return [json_rewrite(v, fn, (*path, i)) for i, v in enumerate(value)]
     return value
 
 
@@ -121,7 +121,7 @@ def _block_leaves(block: Block, path: LeafPath) -> Iterator[Leaf]:
         case Text(text=t):
             yield Leaf(path, t, True)
         case ToolUse(input=inp):
-            yield from _json_leaves(inp, (*path, "input"))
+            yield from json_leaves(inp, (*path, "input"))
         case ToolResult(content=content):
             for i, b in enumerate(content):
                 yield from _block_leaves(b, (*path, "content", i))
@@ -134,7 +134,7 @@ def _block_rewrite(block: Block, path: LeafPath, fn: Callable[[Leaf], str]) -> B
         case Text(text=t, extra=x):
             return Text(fn(Leaf(path, t, True)), x)
         case ToolUse(id=i, name=n, input=inp, extra=x):
-            return ToolUse(i, n, _json_rewrite(inp, (*path, "input"), fn), x)
+            return ToolUse(i, n, json_rewrite(inp, fn, (*path, "input")), x)
         case ToolResult(tool_use_id=i, content=content, extra=x):
             return ToolResult(i, tuple(_block_rewrite(b, (*path, "content", j), fn) for j, b in enumerate(content)), x)
         case _:
@@ -278,6 +278,57 @@ class Block:
 
 Decision = Allow | Redact | Reroute | ForwardHold | Block
 
+ApprovalStatus = Literal["approved", "denied", "expired"]  # what Ports.hold returns; never "pending"
+HoldOutcome = Literal["forwarded", "blocked"]
+
+
+def resolution(status: ApprovalStatus) -> HoldOutcome:
+    """The only mapping from an approval to a lifecycle outcome. A HOLD resolves to forwarded or blocked."""
+    return "forwarded" if status == "approved" else "blocked"
+
+
+@dataclass(frozen=True)
+class ApprovalRef:
+    id: str
+    status: Literal["pending", "approved", "denied", "expired"]
+    created_at: float
+    expires_at: float
+
+
+@dataclass(frozen=True)
+class EgressVerdict:
+    tool_use_id: str
+    tool: str
+    destination: str | None  # normalized host; None for internal tools and missing or unparseable destinations
+    entities: frozenset[str]  # every type found in the payload
+    action: Action  # ALLOW, HOLD, or BLOCK
+    rule: str
+    reason: str
+    outcome: Literal["forwarded", "blocked", "pending"]
+
+
+@dataclass(frozen=True)
+class HeldCall:
+    tool_use_id: str
+    tool: str
+    destination: str | None
+    arguments: JSON  # rehydrated: the reviewer approves the real values
+    entities: frozenset[str]
+    rule: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class HoldSubject:
+    """What the approval modal renders on its own."""
+
+    event_id: str
+    kind: Literal["request", "tool_calls"]
+    rule: str
+    reason: str
+    entities: frozenset[str]
+    tool_calls: tuple[HeldCall, ...] = ()
+
 
 @dataclass(frozen=True)
 class Mark:
@@ -355,6 +406,8 @@ class Event:
     headline: Action
     request: RequestSummary | None
     upstream: UpstreamRef | None
+    egress: tuple[EgressVerdict, ...]
+    approval: ApprovalRef | None
     diff: tuple[LeafDiff, ...]
     stop_reason: str | None
     latency_ms: Mapping[str, int]

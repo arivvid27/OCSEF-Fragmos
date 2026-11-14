@@ -8,7 +8,7 @@ import yaml
 
 from sentinel import wire
 from sentinel.core.detect import detect
-from sentinel.core.model import Action, Allow, Redact, Reroute, Span, Stage
+from sentinel.core.model import Action, Allow, ApprovalRef, Redact, Reroute, Span, Stage
 from sentinel.core.policy import THINKING_REASON, PolicyError, decide, load_policy
 from sentinel.core.turn import TurnContext, run_turn
 from sentinel.core.vault import Vault
@@ -34,12 +34,17 @@ class FakeDetector:
 
 
 class FakePorts:
-    def __init__(self):
-        self.calls, self.events = [], []
+    def __init__(self, verdict="approved"):
+        self.verdict, self.calls, self.events, self.holds = verdict, [], [], []
 
     async def call_upstream(self, upstream, conversation, params, session_id):
         self.calls.append((upstream.id, wire.to_upstream(conversation, params)))
         return wire.parse_reply(REPLY)
+
+    async def hold(self, subject, on_open):
+        self.holds.append(subject)
+        await on_open(ApprovalRef("a1", "pending", 1000.0, 1060.0))
+        return self.verdict
 
     async def emit(self, event):
         self.events.append(event)
@@ -56,8 +61,8 @@ def decision_for(text, upstream="cloud", history=()):
     return decide(detection, POLICY, UPSTREAMS[upstream], UPSTREAMS["local"])
 
 
-def turn(text, upstream="cloud", policy=POLICY):
-    ports = FakePorts()
+def turn(text, upstream="cloud", policy=POLICY, verdict="approved"):
+    ports = FakePorts(verdict)
     ctx = TurnContext(UPSTREAMS, ports, policy, FakeDetector(), Vault())
     reply = asyncio.run(run_turn(inbound(text, upstream), ctx))
     return wire.reply_to_json(reply), ports
@@ -158,13 +163,31 @@ def test_block_rule_returns_one_text_block_and_calls_no_upstream():
     assert (last.headline, last.request.rule, last.upstream) == (Action.BLOCK, "no-secrets", None)
 
 
-def test_hold_rule_blocks_until_approvals_exist():
-    policy = policy_with({"name": "ask-first", "when": {"entity_in": ["PERSON"]}, "action": "HOLD"})
-    reply, ports = turn("ask Jeff Serrano", policy=policy)
+ASK_FIRST = {"name": "ask-first", "when": {"entity_in": ["PERSON"]}, "action": "HOLD"}
 
-    assert blocked(reply, "[SENTINEL] Request blocked: request approval not available yet")
+
+def test_approved_request_hold_forwards_unchanged():
+    reply, ports = turn("ask Jeff Serrano", policy=policy_with(ASK_FIRST), verdict="approved")
+
+    assert reply["content"] == [{"type": "text", "text": "done"}]
+    assert [(u, m["messages"][0]["content"][0]["text"]) for u, m in ports.calls] == [("cloud", "ask Jeff Serrano")]
+    assert ports.holds[0].kind == "request" and ports.holds[0].entities == {"PERSON"}
+    assert [e.stage for e in ports.events][2:5] == [Stage.DECIDED, Stage.HELD, Stage.HELD]
+    assert (ports.events[3].approval, ports.events[4].approval.status) == (None, "pending")
+    last = ports.events[-1]
+    assert (last.stage, last.headline, last.approval.status) == (Stage.RETURNED, Action.HOLD, "approved")
+
+
+@pytest.mark.parametrize("verdict, reason", [("denied", "denied by reviewer"),
+                                             ("expired", "approval expired after 60 s")])
+def test_refused_request_hold_blocks_without_calling_the_model(verdict, reason):
+    reply, ports = turn("ask Jeff Serrano", policy=policy_with(ASK_FIRST), verdict=verdict)
+
+    assert blocked(reply, f"[SENTINEL] Request blocked: {reason}")
     assert ports.calls == []
-    assert (ports.events[-1].headline, ports.events[-1].request.rule) == (Action.BLOCK, "ask-first")
+    assert [e.stage for e in ports.events][-3:] == [Stage.HELD, Stage.BLOCKED, Stage.RETURNED]
+    last = ports.events[-1]
+    assert (last.headline, last.request.action, last.approval.status) == (Action.BLOCK, Action.HOLD, verdict)
 
 
 DEFAULT = {"name": "default", "action": "ALLOW"}
