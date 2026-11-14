@@ -1,7 +1,7 @@
 PY := .venv/bin/python
 RUN := .run
 
-.PHONY: setup data up down check test demo env venv
+.PHONY: setup data up down check test demo env venv dashboard
 
 setup:
 	test -x $(PY) || ~/.local/bin/python3.11 -m venv .venv
@@ -20,6 +20,14 @@ env:
 data: venv
 	$(PY) demo/generate_data.py
 
+DASHBOARD_SRC := $(shell find dashboard/src dashboard/public -type f) \
+	$(wildcard dashboard/index.html dashboard/package.json dashboard/vite.config.ts dashboard/tsconfig*.json)
+
+dashboard/dist/index.html: $(DASHBOARD_SRC)
+	npm --prefix dashboard run build
+
+dashboard: dashboard/dist/index.html
+
 # $(1) name, $(2) port, $(3) command. A pidfile whose process is alive means it is already up.
 define start
 	if [ -f $(RUN)/$(1).pid ] && kill -0 $$(cat $(RUN)/$(1).pid) 2>/dev/null; then echo "$(1) already running"; \
@@ -27,7 +35,7 @@ define start
 	else nohup $(3) </dev/null >$(RUN)/$(1).log 2>&1 & echo $$! >$(RUN)/$(1).pid; echo "started $(1) on :$(2)"; fi
 endef
 
-up: venv env
+up: venv env dashboard
 	@mkdir -p $(RUN)
 	@$(call start,proxy,8787,$(PY) -m sentinel)
 	@$(call start,site,8788,$(PY) demo/site_server.py)

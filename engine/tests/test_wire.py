@@ -5,6 +5,7 @@ import pytest
 
 from sentinel import wire
 from sentinel.core.model import Opaque, Text, ToolUse
+from sentinel.upstreams import registry_from_env
 
 CAPTURED = json.loads((Path(__file__).parent / "fixtures" / "deepseek_reply.json").read_text())
 UPSTREAMS = frozenset({"cloud", "local"})
@@ -95,3 +96,12 @@ def test_rewrite_touches_text_and_tool_input_strings_but_never_thinking():
     assert upper.messages[1].content[0] is conv.messages[1].content[0]
     tool = upper.messages[1].content[1]
     assert isinstance(tool, ToolUse) and all(v == v.upper() for v in tool.input.values())
+
+
+def test_dashboard_sees_upstream_host_but_not_its_url_or_key_name():
+    shown = [wire.upstream_to_json(u) for u in registry_from_env({}).values()]
+    assert shown == [
+        {"id": "cloud", "trust": "cloud", "model": "deepseek-v4.1-flash", "simulated": False, "host": "opencode.ai"},
+        {"id": "local", "trust": "local", "model": "glm-5.3-flash", "simulated": False, "host": "opencode.ai"},
+        {"id": "attacker-sim", "trust": "local", "model": "attacker-sim", "simulated": True, "host": "127.0.0.1"},
+    ]

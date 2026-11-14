@@ -5,9 +5,10 @@ from __future__ import annotations
 import dataclasses
 from enum import Enum
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 
 from sentinel.core.model import (Block, Conversation, Event, HoldSubject, Inbound, Message, Opaque, Params, Reply, Text,
-                                 ToolResult, ToolUse)
+                                 ToolResult, ToolUse, Upstream)
 from sentinel.core.policy import Policy
 
 
@@ -173,3 +174,9 @@ def hold_subject_to_json(subject: HoldSubject) -> dict[str, Any]:
 
 def policy_to_json(policy: Policy) -> dict[str, Any]:
     return _to_json(policy)
+
+
+def upstream_to_json(upstream: Upstream) -> dict[str, Any]:
+    """No base_url or key env name, only the host, so the dashboard can say whether "local" is really on-device."""
+    return {"id": upstream.id, "trust": upstream.trust.value, "model": upstream.model, "simulated": upstream.simulated,
+            "host": urlsplit(upstream.base_url).hostname or ""}
