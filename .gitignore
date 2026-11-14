@@ -1,0 +1,88 @@
+# ---------------------------------------------------------------------------
+# Dependencies
+# (no leading "./" or "/" so these match at any depth, e.g. fragmos/node_modules)
+# ---------------------------------------------------------------------------
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# ---------------------------------------------------------------------------
+# Secrets & environment
+# Real env files hold API keys (GEMINI_API_KEY) and must never be committed.
+# Templates are the exception.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+# Google Cloud / Vertex AI credentials
+*service-account*.json
+application_default_credentials.json
+gcloud-key*.json
+
+# ---------------------------------------------------------------------------
+# Next.js & build output
+# ---------------------------------------------------------------------------
+.next/
+out/
+build/
+dist/
+next-env.d.ts
+*.tsbuildinfo
+
+# Hosting
+.vercel
+.netlify
+
+# ---------------------------------------------------------------------------
+# Testing & coverage
+# ---------------------------------------------------------------------------
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# ---------------------------------------------------------------------------
+# Logs & debug output
+# ---------------------------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------------------------------------------------------------------------
+# Caches
+# ---------------------------------------------------------------------------
+.eslintcache
+.cache/
+.turbo/
+.npm/
+
+# ---------------------------------------------------------------------------
+# Editors, OS & local tooling
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*~
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# AI assistants / editor workspaces (local state, transcripts, screenshots)
+.nimbalyst/
+.claude/settings.local.json
+
+# Scratch space for throwaway scripts
+.scratch/
