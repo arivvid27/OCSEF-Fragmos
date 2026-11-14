@@ -6,6 +6,9 @@ from typing import Iterable, Mapping, Protocol, Sequence
 
 from .model import Detection, Finding, Leaf, Span, Tier
 from .vault import PLACEHOLDER, Vault
+from .views import compact, decoded, normalized
+
+VIEW_TYPES = frozenset({"US_SSN", "SECRET"})
 
 
 class Detector(Protocol):
@@ -47,7 +50,34 @@ def scan_leaf(leaf: Leaf, detector: Detector, vault: Vault, tiers: Mapping[str, 
         start, end = s.start + offset, s.end + offset
         findings.append(Finding(s.entity_type, tiers[s.entity_type], leaf.path, start, end, s.score,
                                 leaf.text[start:end], "detector", read_only))
-    return findings
+    return findings + _disguised(leaf, detector, tiers, findings)
+
+
+def _disguised(leaf: Leaf, detector: Detector, tiers: Mapping[str, Tier], found: list[Finding]) -> list[Finding]:
+    """Values a reader would decode from the leaf (base64, odd dashes and spaces, zero-width characters, one character
+    at a time) that the recognizers read past. Read-only: a placeholder over the disguised span would not line up with
+    what the reader decodes."""
+    wanted = VIEW_TYPES & frozenset(tiers)
+    if not wanted:
+        return []
+    plain = normalized(leaf.text)
+    views = [(v, wanted) for v in decoded(leaf.text)]
+    if plain.text != leaf.text:
+        views.append((plain, wanted))
+    if "SECRET" in wanted:
+        views.append((compact(plain), frozenset({"SECRET"})))
+
+    seen = [(f.entity_type, f.start, f.end) for f in found]
+    extra = []
+    for view, types in views:
+        for s in detector.patterns(view.text, types):
+            start, end = view.source(s.start, s.end)
+            if any(t == s.entity_type and a <= start and end <= b for t, a, b in seen):
+                continue
+            seen.append((s.entity_type, start, end))
+            extra.append(Finding(s.entity_type, tiers[s.entity_type], leaf.path, start, end, s.score,
+                                 leaf.text[start:end], "detector", True))
+    return extra
 
 
 def detect(request: HasLeaves, detector: Detector, vault: Vault, tiers: Mapping[str, Tier]) -> Detection:
