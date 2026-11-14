@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from bisect import bisect_right
 from typing import Iterable, Mapping, Protocol, Sequence
 
 from .model import Detection, Finding, Leaf, Span, Tier
@@ -9,6 +11,8 @@ from .vault import PLACEHOLDER, Vault
 from .views import compact, decoded, normalized
 
 VIEW_TYPES = frozenset({"US_SSN", "SECRET"})
+SURE = 0.5  # a delimited SSN or a secret pattern; a bare run of nine digits scores 0.05
+_FRAGMENT = re.compile(r"\S*\d\S*")
 
 
 class Detector(Protocol):
@@ -80,6 +84,40 @@ def _disguised(leaf: Leaf, detector: Detector, tiers: Mapping[str, Tier], found:
     return extra
 
 
+def joined(leaves: Sequence[Leaf], detector: Detector, tiers: Mapping[str, Tier]) -> list[Finding]:
+    """A value split across leaves (two messages, two blocks, two tool calls) is whole again to whoever reads them all.
+    Scans the leaves end to end, then only their digit-bearing tokens so the words between two halves drop out. Keeps
+    sure matches that span leaves, one read-only finding per piece; a match inside one leaf is that leaf's own."""
+    wanted = VIEW_TYPES & frozenset(tiers)
+    prose = [leaf for leaf in leaves if not leaf.identifier]  # tool ids between two halves would break the join
+    if not wanted or len(prose) < 2:
+        return []
+    whole = [(i, 0, len(leaf.text)) for i, leaf in enumerate(prose)]
+    tokens = [(i, m.start(), m.end()) for i, leaf in enumerate(prose) for m in _FRAGMENT.finditer(leaf.text)]
+    found, seen = [], set()
+    for pieces in (whole, tokens):
+        starts, n = [], 0
+        for _, a, b in pieces:
+            starts.append(n)
+            n += b - a
+        text = "".join(prose[i].text[a:b] for i, a, b in pieces)
+        for s in detector.patterns(text, wanted):
+            first, last = bisect_right(starts, s.start) - 1, bisect_right(starts, s.end - 1) - 1
+            if s.score < SURE or pieces[first][0] == pieces[last][0]:
+                continue
+            for (i, a, b), at in zip(pieces[first:last + 1], starts[first:last + 1]):
+                start, end = a + max(s.start - at, 0), a + min(s.end - at, b - a)
+                leaf = prose[i]
+                if start < end and (leaf.path, start, end, s.entity_type) not in seen:
+                    seen.add((leaf.path, start, end, s.entity_type))
+                    found.append(Finding(s.entity_type, tiers[s.entity_type], leaf.path, start, end, s.score,
+                                         leaf.text[start:end], "detector", True))
+    return found
+
+
 def detect(request: HasLeaves, detector: Detector, vault: Vault, tiers: Mapping[str, Tier]) -> Detection:
-    """Every leaf the request forwards. Read-only leaves are never rewritten, but what they hold still counts."""
-    return Detection(tuple(f for leaf in request.leaves() for f in scan_leaf(leaf, detector, vault, tiers)))
+    """Every leaf the request forwards, and every value split across them. Read-only leaves are never rewritten, but
+    what they hold still counts."""
+    leaves = list(request.leaves())
+    each = [f for leaf in leaves for f in scan_leaf(leaf, detector, vault, tiers)]
+    return Detection((*each, *joined(leaves, detector, tiers)))

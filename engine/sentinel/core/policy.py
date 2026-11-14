@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
-from .detect import Detector, scan_leaf
+from .detect import Detector, joined, scan_leaf
 from .model import (Action, Allow, Block, Decision, Detection, EgressVerdict, Finding, ForwardHold, Redact, Reply,
                     Reroute, Tier, ToolUse, Trust, Upstream, json_leaves)
 from .vault import Vault
@@ -233,8 +233,17 @@ def destination_host(tool: str, value: object) -> str | None:
 
 
 def check_egress(reply: Reply, policy: Policy, detector: Detector, vault: Vault) -> tuple[EgressVerdict, ...]:
-    """One verdict per tool_use in the rehydrated reply, scanned leaf by leaf like a request. An email address
-    is only the destination; a URL is also payload, since its path, query and subdomains can carry data."""
+    """One verdict per tool_use in the rehydrated reply, scanned leaf by leaf like a request, and for a value split
+    across the external calls. An email address is only the destination; a URL is also payload, since its path, query
+    and subdomains can carry data."""
+    payloads = {}
+    for j, block in enumerate(reply.blocks):
+        arg = policy.egress.tools.get(block.name) if isinstance(block, ToolUse) else None
+        if arg is not None:
+            leaves = (*json_leaves(block.input, ("content", j, "input")),
+                      *json_leaves(dict(block.extra), ("content", j, "extra"), False))
+            payloads[j] = [leaf for leaf in leaves if not (arg == "to" and leaf.path[2:] == ("input", arg))]
+    split = joined([leaf for leaves in payloads.values() for leaf in leaves], detector, policy.tiers)
     verdicts = []
     for j, block in enumerate(reply.blocks):
         if not isinstance(block, ToolUse):
@@ -247,10 +256,8 @@ def check_egress(reply: Reply, policy: Policy, detector: Detector, vault: Vault)
         dest = block.input.get(arg) if isinstance(block.input, dict) else None
         host = destination_host(block.name, dest)
         allowed = host is not None and host in policy.egress.allowed_domains
-        payload = (*json_leaves(block.input, ("content", j, "input")), *json_leaves(dict(block.extra),
-                                                                                  ("content", j, "extra"), False))
-        findings = tuple(f for leaf in payload if not (arg == "to" and leaf.path[2:] == ("input", arg))
-                         for f in scan_leaf(leaf, detector, vault, policy.tiers))
+        findings = (*(f for leaf in payloads[j] for f in scan_leaf(leaf, detector, vault, policy.tiers)),
+                    *(f for f in split if f.path[1] == j))
         rule = next(r for r in policy.egress.rules if r.when.matches(findings, allowed))
         types = ", ".join(sorted(rule.when.triggered(findings)))
         where = host or "an unparseable destination"

