@@ -1,0 +1,15 @@
+CLINIC VISIT NOTE
+
+Patient: Chris Curtis
+Date of birth: July 25, 1949
+Phone: (555) 815-9083
+Attending: Dr. Jeffrey Jones
+
+Chief complaint: fatigue, increased thirst, and blurred vision for three weeks.
+
+Assessment: Type 2 diabetes mellitus, newly diagnosed. HbA1c 8.4%. Mild hypertension.
+
+Plan: Start metformin 500 mg twice daily with meals. Continue lisinopril 10 mg daily.
+Refer to nutrition counseling. Recheck HbA1c in 3 months.
+
+Follow-up: Chris Curtis to call (555) 815-9083 line if symptoms worsen.
