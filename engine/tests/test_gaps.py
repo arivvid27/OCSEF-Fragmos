@@ -7,6 +7,7 @@ reach the agent unblocked toward a host that is not on the allow list.
 import asyncio
 import base64
 import json
+import random
 import re
 from pathlib import Path
 
@@ -102,6 +103,11 @@ def assistant(*content):
 
 def text(s):
     return {"type": "text", "text": s}
+
+
+def image(data):
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                        "data": base64.b64encode(data).decode()}}
 
 
 def cloud_saw(ports):
@@ -259,6 +265,13 @@ def test_key_split_across_two_messages_stays_off_cloud(presidio):
                 user(text(f"Second half: {KEY[16:]}. Join them."))]
     _, ports = run_body({"messages": messages}, presidio)
     assert_cloud_never_saw_parts(ports, KEY[:16], KEY[16:])
+
+
+def test_a_large_screenshot_reaches_the_cloud_unread_as_names(presidio):
+    """Base64 bytes are not prose: NER finds names all over them, and spaCy refuses text over 1M characters."""
+    _, ports = run_body({"messages": [user(text("What is on this screen?"), image(random.Random(7).randbytes(800_000)))]},
+                        presidio)
+    assert [c["trust"] for c in ports.calls] == ["cloud"]
 
 
 @pytest.mark.xfail(strict=True, reason="known limit: a second request without the first in its history shares only "

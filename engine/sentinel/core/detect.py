@@ -46,8 +46,11 @@ def scan_leaf(leaf: Leaf, detector: Detector, vault: Vault, tiers: Mapping[str, 
         shifts.append((token_end, delta))
     tokens = [t.span() for t in PLACEHOLDER.finditer(residue) if vault.issued(t.group())]
 
-    scan = detector.patterns if leaf.identifier else detector.scan
-    for s in scan(residue, frozenset(tiers)):
+    if leaf.encoded:
+        spans = detector.patterns(residue, VIEW_TYPES & frozenset(tiers))
+    else:
+        spans = (detector.patterns if leaf.identifier else detector.scan)(residue, frozenset(tiers))
+    for s in spans:
         if any(s.start < end and start < s.end for start, end in tokens):
             continue
         offset = next((d for end, d in reversed(shifts) if end <= s.start), 0)
@@ -64,12 +67,13 @@ def _disguised(leaf: Leaf, detector: Detector, tiers: Mapping[str, Tier], found:
     wanted = VIEW_TYPES & frozenset(tiers)
     if not wanted:
         return []
-    plain = normalized(leaf.text)
     views = [(v, wanted) for v in decoded(leaf.text)]
-    if plain.text != leaf.text:
-        views.append((plain, wanted))
-    if "SECRET" in wanted:
-        views.append((compact(plain), frozenset({"SECRET"})))
+    if not leaf.encoded:  # bytes have no dashes or spacing to disguise; their one other reading is the decoded one
+        plain = normalized(leaf.text)
+        if plain.text != leaf.text:
+            views.append((plain, wanted))
+        if "SECRET" in wanted:
+            views.append((compact(plain), frozenset({"SECRET"})))
 
     seen = [(f.entity_type, f.start, f.end) for f in found]
     extra = []
@@ -89,7 +93,7 @@ def joined(leaves: Sequence[Leaf], detector: Detector, tiers: Mapping[str, Tier]
     Scans the leaves end to end, then only their digit-bearing tokens so the words between two halves drop out. Keeps
     sure matches that span leaves, one read-only finding per piece; a match inside one leaf is that leaf's own."""
     wanted = VIEW_TYPES & frozenset(tiers)
-    prose = [leaf for leaf in leaves if not leaf.identifier]  # tool ids between two halves would break the join
+    prose = [leaf for leaf in leaves if not (leaf.identifier or leaf.encoded)]  # tool ids would break the join
     if not wanted or len(prose) < 2:
         return []
     whole = [(i, 0, len(leaf.text)) for i, leaf in enumerate(prose)]

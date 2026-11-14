@@ -90,6 +90,7 @@ class Leaf:
     text: str
     rewritable: bool
     identifier: bool = False  # a tool name, id, header, or number: NER reads `read_file` as a LOCATION
+    encoded: bool = False  # base64 media bytes: NER finds names all over that noise, and spaCy caps text at 1M chars
 
 
 def json_leaves(value: JSON, path: LeafPath = (), rewritable: bool = True) -> Iterator[Leaf]:
@@ -136,7 +137,10 @@ def _block_leaves(block: Block, path: LeafPath) -> Iterator[Leaf]:
                 yield from _block_leaves(b, (*path, "content", k))
             yield from json_leaves(dict(x), (*path, "extra"), False)
         case Opaque(raw=raw):
-            yield from json_leaves(dict(raw), path, False)
+            source = raw.get("source")
+            data = (*path, "source", "data") if isinstance(source, dict) and source.get("type") == "base64" else None
+            for leaf in json_leaves(dict(raw), path, False):
+                yield replace(leaf, encoded=True) if leaf.path == data else leaf
 
 
 def _block_rewrite(block: Block, path: LeafPath, fn: Callable[[Leaf], str]) -> Block:
