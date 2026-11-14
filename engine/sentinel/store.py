@@ -33,8 +33,9 @@ class Store:
                  event["headline"], upstream, json.dumps(event)),
             )
 
-    def events(self, limit: int = 200) -> list[dict[str, Any]]:
-        rows = self._db.execute("SELECT body FROM events ORDER BY seq DESC LIMIT ?", (limit,))
+    def events(self, limit: int = 200, session: str | None = None) -> list[dict[str, Any]]:
+        rows = self._db.execute("SELECT body FROM events WHERE ? IS NULL OR session_id = ? ORDER BY seq DESC LIMIT ?",
+                                (session, session, limit))
         return [json.loads(body) for (body,) in rows]
 
     def stats(self) -> dict[str, dict[str, int]]:

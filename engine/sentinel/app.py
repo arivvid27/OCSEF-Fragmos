@@ -93,8 +93,8 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
         return JSONResponse(wire.reply_to_json(reply))
 
     @app.get("/api/events")
-    async def events(limit: int = 200) -> list[dict[str, Any]]:
-        return store.events(limit)
+    async def events(limit: int = 200, session: str | None = None) -> list[dict[str, Any]]:
+        return store.events(limit, session)
 
     @app.get("/api/stats")
     async def stats() -> dict[str, dict[str, int]]:
