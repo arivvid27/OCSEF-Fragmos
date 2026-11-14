@@ -33,6 +33,9 @@ class Vault:
     def __len__(self) -> int:
         return len(self._token_of)
 
+    def issued(self, token: str) -> bool:
+        return token in self._value_of
+
     def token_for(self, entity_type: str, value: str) -> str:
         """A value keeps the type it was first minted under."""
         if value not in self._token_of:

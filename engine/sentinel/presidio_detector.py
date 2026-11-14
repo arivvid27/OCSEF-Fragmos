@@ -17,12 +17,13 @@ MEDICAL_TERMS = [  # P3: 9 hits on patient_note.txt, 0 on patient_note_light.txt
     "depression", "prescribed", "mg twice daily", "mg daily",
 ]
 
+# A head with part of its body is still a secret: a key split in two, or a PEM cut off before its END line.
 SECRET_PATTERNS = [
-    Pattern("anthropic_key", r"sk-ant-[A-Za-z0-9_\-]{20,}", 0.95),
+    Pattern("anthropic_key", r"sk-ant-[A-Za-z0-9_\-]{8,}", 0.95),
     Pattern("aws_access_key", r"\bAKIA[0-9A-Z]{16}\b", 0.95),
-    Pattern("github_token", r"\bgh[pousr]_[A-Za-z0-9]{36,}\b", 0.95),
-    Pattern("private_key", r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----[\s\S]+?-----END (?:[A-Z ]+ )?PRIVATE KEY-----",
-            0.95),
+    Pattern("github_token", r"\bgh[pousr]_[A-Za-z0-9]{8,}", 0.95),
+    Pattern("private_key", r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----"
+                           r"(?:[\s\S]+?-----END (?:[A-Z ]+ )?PRIVATE KEY-----|(?:\s*[A-Za-z0-9+/=]{16,})+)", 0.95),
     Pattern("jwt", r"\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", 0.95),
 ]
 

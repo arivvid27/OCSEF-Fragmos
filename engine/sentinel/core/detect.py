@@ -24,7 +24,8 @@ class HasLeaves(Protocol):
 
 def scan_leaf(leaf: Leaf, detector: Detector, vault: Vault, tiers: Mapping[str, Tier]) -> list[Finding]:
     """Known values count as findings too, so a turn carrying them is never classified lower than the turn
-    that minted them. Detector spans touching a [TYPE_N] token are placeholders, not data, and are dropped."""
+    that minted them. Detector spans touching a [TYPE_N] token this vault issued are placeholders, not data, and are
+    dropped; a token the sender typed is just text."""
     residue, known = vault.substitute(leaf.text)
     read_only = not leaf.rewritable
     findings = [Finding(m.entity_type, tiers[m.entity_type], leaf.path, m.start, m.end, 1.0,
@@ -36,7 +37,7 @@ def scan_leaf(leaf: Leaf, detector: Detector, vault: Vault, tiers: Mapping[str, 
         token_end = m.start - delta + len(m.placeholder)
         delta += (m.end - m.start) - len(m.placeholder)
         shifts.append((token_end, delta))
-    tokens = [t.span() for t in PLACEHOLDER.finditer(residue)]
+    tokens = [t.span() for t in PLACEHOLDER.finditer(residue) if vault.issued(t.group())]
 
     scan = detector.patterns if leaf.identifier else detector.scan
     for s in scan(residue, frozenset(tiers)):

