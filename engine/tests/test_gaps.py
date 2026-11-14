@@ -289,8 +289,8 @@ def test_key_split_across_two_messages_stays_off_cloud(presidio):
 
 def test_a_large_screenshot_reaches_the_cloud_unread_as_names(presidio):
     """Base64 bytes are not prose: NER finds names all over them, and spaCy refuses text over 1M characters."""
-    _, ports = run_body({"messages": [user(text("What is on this screen?"), image(random.Random(7).randbytes(800_000)))]},
-                        presidio)
+    screenshot = image(random.Random(7).randbytes(800_000))
+    _, ports = run_body({"messages": [user(text("What is on this screen?"), screenshot)]}, presidio)
     assert [c["trust"] for c in ports.calls] == ["cloud"]
 
 

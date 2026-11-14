@@ -267,10 +267,10 @@ def check_egress(reply: Reply, policy: Policy, detector: Detector, vault: Vault)
         if not isinstance(block, ToolUse):
             continue
         args = policy.egress.tools.get(block.name)
-        if ids.count(block.id) > 1:
-            verdicts.append(EgressVerdict(block.id, block.name, None, frozenset(), Action.BLOCK, "duplicate-tool-use-id",
-                                          f"{ids.count(block.id)} tool calls share the id {block.id}, so no check or approval "
-                                          f"can tell them apart", "blocked"))
+        if (twins := ids.count(block.id)) > 1:
+            reason = f"{twins} tool calls share the id {block.id}, so no check or approval can tell them apart"
+            verdicts.append(EgressVerdict(block.id, block.name, None, frozenset(), Action.BLOCK,
+                                          "duplicate-tool-use-id", reason, "blocked"))
             continue
         if args is None:
             verdicts.append(EgressVerdict(block.id, block.name, None, frozenset(), Action.ALLOW, "internal-tool",
