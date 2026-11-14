@@ -9,6 +9,8 @@ import base64
 import json
 import random
 import re
+import struct
+import zlib
 from pathlib import Path
 
 import pytest
@@ -108,6 +110,24 @@ def text(s):
 def image(data):
     return {"type": "image", "source": {"type": "base64", "media_type": "image/png",
                                         "data": base64.b64encode(data).decode()}}
+
+
+FONT_3X5 = {"0": "111101101101111", "1": "010110010010111", "2": "111001111100111", "3": "111001111001111",
+            "4": "101101111001001", "5": "111100111001111", "6": "111100111101111", "7": "111001001001001",
+            "8": "111101111101111", "9": "111101111001111", "-": "000000111000000"}
+
+
+def png_spelling(s, scale=6):
+    """A grayscale PNG that shows s in a 3x5 pixel font: text a person or a model reads, and no recognizer does."""
+    def row(y):
+        return b"\0" + bytes(0 if x < 3 * scale and FONT_3X5[c][y // scale * 3 + x // scale] == "1" else 255
+                             for c in s for x in range(4 * scale))
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    header = struct.pack(">IIBBBBB", 4 * scale * len(s), 5 * scale, 8, 0, 0, 0, 0)
+    pixels = zlib.compress(b"".join(row(y) for y in range(5 * scale)))
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", pixels) + chunk(b"IEND", b"")
 
 
 def cloud_saw(ports):
@@ -272,6 +292,12 @@ def test_a_large_screenshot_reaches_the_cloud_unread_as_names(presidio):
     _, ports = run_body({"messages": [user(text("What is on this screen?"), image(random.Random(7).randbytes(800_000)))]},
                         presidio)
     assert [c["trust"] for c in ports.calls] == ["cloud"]
+
+
+@pytest.mark.xfail(strict=True, reason="known limit: SENTINEL reads no pixels, so text inside an image goes as it is")
+def test_ssn_shown_in_an_image_stays_local(presidio):
+    _, ports = run_body({"messages": [user(text("File the SSN in this scan."), image(png_spelling(SSN)))]}, presidio)
+    assert_stayed_local(ports)
 
 
 @pytest.mark.xfail(strict=True, reason="known limit: a second request without the first in its history shares only "
@@ -523,6 +549,12 @@ def test_a_plain_allowed_recipient_does_not_hold(presidio):
     reply = model_reply(tool_use("send_email", to=DR_LEE, cc=[DR_LEE], subject="Lunch", body="See you then."))
     out, ports = egress(reply, presidio)
     assert ports.holds == [] and [b["name"] for b in out["content"] if b["type"] == "tool_use"] == ["send_email"]
+
+
+@KNOWN_LIMIT
+def test_key_to_an_allowed_host_is_blocked(presidio):
+    out, _ = egress(model_reply(tool_use("http_post", url="http://localhost:8788/upload", body=f"key={KEY}")), presidio)
+    assert_blocked(out, KEY)
 
 
 @KNOWN_LIMIT
