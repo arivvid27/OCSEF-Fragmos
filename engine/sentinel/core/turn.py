@@ -143,11 +143,11 @@ def tool_calls_blocked(reply: Reply, reason: str) -> Reply:
     return replace(reply, blocks=(*kept, Text(f"[SENTINEL] Tool call blocked: {reason}")), stop_reason="end_turn")
 
 
-def _held_calls(reply: Reply, held: list[EgressVerdict]) -> tuple[HeldCall, ...]:
-    inputs = {b.id: b.input for b in reply.blocks if isinstance(b, ToolUse)}
-    return tuple(HeldCall(v.tool_use_id, v.tool, v.destination,
-                          json_rewrite(inputs[v.tool_use_id], lambda leaf: leaf.text[:DIFF_CAP]), v.entities, v.rule,
-                          v.reason) for v in held)
+def _held_calls(reply: Reply, verdicts: tuple[EgressVerdict, ...]) -> tuple[HeldCall, ...]:
+    """check_egress gives the top-level tool calls their verdicts first and in order, so position pairs them."""
+    calls = [b for b in reply.blocks if isinstance(b, ToolUse)]
+    return tuple(HeldCall(v.tool_use_id, v.tool, v.destination, json_rewrite(b.input, lambda leaf: leaf.text[:DIFF_CAP]),
+                          v.entities, v.rule, v.reason) for b, v in zip(calls, verdicts) if v.outcome == "pending")
 
 
 def blocked_reply(turn_id: str, reason: str) -> Reply:
@@ -233,7 +233,7 @@ async def run_turn(inbound: Inbound, ctx: TurnContext) -> Reply:
     if refused is None and held:
         await move(Stage.TOOL_HELD)
         approval = await hold(HoldSubject(turn.id, "tool_calls", held[0].rule, "; ".join(v.reason for v in held),
-                                          frozenset().union(*(v.entities for v in held)), _held_calls(reply, held)))
+                                          frozenset().union(*(v.entities for v in held)), _held_calls(reply, turn.egress)))
         outcome = resolution(approval.status)
         turn.egress = tuple(replace(v, outcome=outcome) if v.outcome == "pending" else v for v in turn.egress)
         if outcome == "blocked":

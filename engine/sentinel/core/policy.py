@@ -246,7 +246,8 @@ def destinations(args: tuple[str, ...], value: object) -> list[object]:
 def check_egress(reply: Reply, policy: Policy, detector: Detector, vault: Vault) -> tuple[EgressVerdict, ...]:
     """One verdict per top-level tool_use in the rehydrated reply, in order, scanned leaf by leaf like a request and
     for a value split across the external calls; then a BLOCK per tool_use nested in another block, which the agent
-    could run unchecked. A call is allow-listed only if every destination is. An email address is only a
+    could run unchecked. Calls sharing an id are blocked: approvals and results are matched to calls by id.
+    A call is allow-listed only if every destination is. An email address is only a
     destination, so it can block but never hold; a URL is also payload, since its path, query and subdomains can carry
     data."""
     blockable = frozenset().union(*(r.when.entity_in or () for r in policy.egress.rules if r.action is Action.BLOCK))
@@ -260,11 +261,17 @@ def check_egress(reply: Reply, policy: Policy, detector: Detector, vault: Vault)
             payloads[j] = [leaf for leaf, a in zip(leaves, addressed) if not a]
             addresses[j] = [leaf for leaf, a in zip(leaves, addressed) if a]
     split = joined([leaf for leaves in payloads.values() for leaf in leaves], detector, policy.tiers)
+    ids = [b.id for b in reply.blocks if isinstance(b, ToolUse)]
     verdicts = []
     for j, block in enumerate(reply.blocks):
         if not isinstance(block, ToolUse):
             continue
         args = policy.egress.tools.get(block.name)
+        if ids.count(block.id) > 1:
+            verdicts.append(EgressVerdict(block.id, block.name, None, frozenset(), Action.BLOCK, "duplicate-tool-use-id",
+                                          f"{ids.count(block.id)} tool calls share the id {block.id}, so no check or approval "
+                                          f"can tell them apart", "blocked"))
+            continue
         if args is None:
             verdicts.append(EgressVerdict(block.id, block.name, None, frozenset(), Action.ALLOW, "internal-tool",
                                           f"{block.name} is not an external tool", "forwarded"))
