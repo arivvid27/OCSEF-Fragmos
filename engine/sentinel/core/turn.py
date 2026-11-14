@@ -10,7 +10,8 @@ from typing import Awaitable, Callable, Mapping, Protocol
 from .detect import Detector, detect
 from .model import (TRANSITIONS, Action, ApprovalRef, ApprovalStatus, Block, Conversation, Decision, EgressVerdict,
                     Event, ForwardHold, HeldCall, HoldSubject, Hop, HopState, Inbound, LeafDiff, Params, Redact, Reply,
-                    RequestSummary, Reroute, Stage, Text, ToolUse, Upstream, UpstreamRef, json_rewrite, resolution)
+                    RequestSummary, Reroute, Stage, Text, ToolUse, Upstream, UpstreamRef, json_rewrite,
+                    nested_tool_uses, resolution)
 from .policy import Policy, check_egress, decide
 from .vault import DIFF_CAP, Vault, raw_diffs, redact, rehydrate
 
@@ -136,8 +137,9 @@ def refusal(approval: ApprovalRef) -> str:
 
 
 def tool_calls_blocked(reply: Reply, reason: str) -> Reply:
-    """Every tool_use goes, not only the offending one: the model planned the batch together."""
-    kept = tuple(b for b in reply.blocks if not isinstance(b, ToolUse))
+    """Every tool_use goes, not only the offending one: the model planned the batch together. So does every block
+    with a tool_use nested inside it."""
+    kept = tuple(b for b in reply.blocks if not isinstance(b, ToolUse) and not nested_tool_uses(b))
     return replace(reply, blocks=(*kept, Text(f"[SENTINEL] Tool call blocked: {reason}")), stop_reason="end_turn")
 
 

@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 from .detect import Detector, joined, scan_leaf
 from .model import (Action, Allow, Block, Decision, Detection, EgressVerdict, Finding, ForwardHold, Redact, Reply,
-                    Reroute, Tier, ToolUse, Trust, Upstream, json_leaves)
+                    Reroute, Tier, ToolUse, Trust, Upstream, json_leaves, nested_tool_uses)
 from .vault import Vault
 
 READ_ONLY_REASON = "sensitive data where SENTINEL cannot put a placeholder, so it stays local"
@@ -244,8 +244,9 @@ def destinations(args: tuple[str, ...], value: object) -> list[object]:
 
 
 def check_egress(reply: Reply, policy: Policy, detector: Detector, vault: Vault) -> tuple[EgressVerdict, ...]:
-    """One verdict per tool_use in the rehydrated reply, scanned leaf by leaf like a request, and for a value split
-    across the external calls. A call is allow-listed only if every destination is. An email address is only a
+    """One verdict per top-level tool_use in the rehydrated reply, in order, scanned leaf by leaf like a request and
+    for a value split across the external calls; then a BLOCK per tool_use nested in another block, which the agent
+    could run unchecked. A call is allow-listed only if every destination is. An email address is only a
     destination, so it can block but never hold; a URL is also payload, since its path, query and subdomains can carry
     data."""
     blockable = frozenset().union(*(r.when.entity_in or () for r in policy.egress.rules if r.action is Action.BLOCK))
@@ -288,4 +289,8 @@ def check_egress(reply: Reply, policy: Policy, detector: Detector, vault: Vault)
                 reason, outcome = f"{block.name} to {where} carries nothing on the block or hold lists", "forwarded"
         verdicts.append(EgressVerdict(block.id, block.name, host, frozenset(f.entity_type for f in findings),
                                       rule.action, rule.name, reason, outcome))
+    for block in reply.blocks:
+        verdicts += [EgressVerdict(i, name, None, frozenset(), Action.BLOCK, "nested-tool-call",
+                                   f"{name} is a tool call nested inside another block, where SENTINEL cannot check it",
+                                   "blocked") for i, name in nested_tool_uses(block)]
     return tuple(verdicts)

