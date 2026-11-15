@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { containsResidualPII, detectSensitive } from "./detect";
 import { disabledCategories } from "./policies";
+import { STRUCTURED_PATTERNS } from "./patterns";
+import { PRESETS } from "./presets";
 import { DISGUISED_SSNS, KEY, SSN, b64 } from "./test-fixtures";
+import { decoded } from "./views";
 
 function found(text: string): string[] {
   return detectSensitive(text)
@@ -24,12 +27,99 @@ describe("detectSensitive", () => {
     expect(found(`Deploy key (base64): ${b64(KEY)}`)).toEqual(["API_KEY:" + b64(KEY)]);
   });
 
-  for (const gap of [" ", "\n"]) {
+  for (const gap of [" ", "\n", " \t "]) {
     it(`finds a key broken by ${JSON.stringify(gap)}`, () => {
       const form = KEY.slice(0, 14) + gap + KEY.slice(14);
       expect(found(`Deploy key: ${form}`)).toEqual(["API_KEY:" + form]);
     });
   }
+
+  it("finds a broken key that follows a word", () => {
+    expect(found("the key is ASIAIOSFODNN7\nEXAMPLE")).toEqual(["AWS_ACCESS_KEY:ASIAIOSFODNN7\nEXAMPLE"]);
+  });
+
+  it("finds a broken key with words after it", () => {
+    expect(found("the key is ASIAIOSFODNN7\nEXAMPLE thanks")).toEqual(["AWS_ACCESS_KEY:ASIAIOSFODNN7\nEXAMPLE"]);
+  });
+
+  it("finds a key broken inside its prefix", () => {
+    expect(found("the key is AS IAIOSFODNN7EXAMPLE")).toEqual(["AWS_ACCESS_KEY:AS IAIOSFODNN7EXAMPLE"]);
+  });
+
+  it("finds a token wrapped where its parts begin", () => {
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.\neyJzdWIiOiIxMjM0NTY3ODkwIn0.\ndBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    expect(found(`the token is ${jwt}.`)).toEqual(["JWT:" + jwt]);
+  });
+
+  it("does not join a key shape to the letters of the next word", () => {
+    expect(found("the key is ASIAIOSFODNN7\nEXAMPLEthanks")).toEqual([]);
+  });
+
+  it("takes the whole key when its first line is a key by itself", () => {
+    const form = "sk-ant-" + "a".repeat(25) + "\n" + "b".repeat(10);
+    expect(found(`key: ${form}`)).toEqual(["API_KEY:" + form]);
+  });
+
+  it("covers both of two shapes that overlap in part", () => {
+    const form = "api_key=sk-ant-aaaaaaaaaa\n" + "b".repeat(12);
+    expect(found(`set ${form}`)).toEqual(["API_KEY:" + form]);
+  });
+
+  it("finds a value in base64 that decodes with a control character", () => {
+    expect(found("SSN OTEyLTM0LTU2NzgA")).toEqual(["SSN:OTEyLTM0LTU2NzgA"]);
+    const inside = b64("912-34\u0000-5678");
+    expect(found(`SSN ${inside}`)).toEqual(["SSN:" + inside]);
+  });
+
+  it("finds a value in base64 of UTF-16 text", () => {
+    const wide = Buffer.from("SSN 912-34-5678", "utf16le").toString("base64");
+    expect(found(`run ${wide}`)).toEqual(["SSN:" + wide]);
+  });
+
+  it("finds a key in base64 that a control character separates from a word", () => {
+    const framed = b64("user\u0000" + KEY + "\u0000");
+    expect(found(`blob ${framed}`)).toEqual(["API_KEY:" + framed]);
+  });
+
+  it("finds a value split by a control character", () => {
+    expect(found("SSN 531-62\u0001-4408 on file")).toEqual(["SSN:531-62\u0001-4408"]);
+  });
+
+  it("finds nothing in base64-looking text that hides no value", () => {
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let state = 20261115;
+    function next(below: number): number {
+      state = (state * 1664525 + 1013904223) >>> 0;
+      return state % below;
+    }
+    const runs: string[] = [];
+    for (let i = 0; i < 2000; i++) {
+      let run = "";
+      for (let length = 12 + next(29); run.length < length; ) {
+        run += alphabet[next(alphabet.length)];
+      }
+      runs.push(run);
+    }
+    for (const p of PRESETS) {
+      runs.push(...p.text.split(/\s+/));
+    }
+    runs.push(..."internationalization organization-wide src/components/monitor/EventDetail node_modules/next/dist".split(" "));
+
+    const decodable = [
+      b64("frame\u0000\u0001 header v2\u0000"),
+      b64("\u0002meeting notes for Friday\u0003"),
+      Buffer.from("hello world", "utf16le").toString("base64"),
+    ];
+    for (const run of decodable) {
+      expect(decoded(run), run).not.toEqual([]);
+    }
+
+    for (const run of runs.concat(decodable)) {
+      const direct = STRUCTURED_PATTERNS.filter((p) => run.match(p.re)).map((p) => p.category);
+      const all = detectSensitive(run).map((d) => d.category).filter((c) => c !== "HIGH_ENTROPY_SECRET");
+      expect(direct, run).toEqual(expect.arrayContaining(all));
+    }
+  });
 
   it("does not glue separate words into one value", () => {
     expect(found("Ask info @ example.org today, or see https://docs.example.org :8080 @ noon.")).toEqual([]);
@@ -109,7 +199,7 @@ describe("containsResidualPII", () => {
   });
 
   it("stays fast on hostile input that forces every reading", () => {
-    for (const seed of ["a", "password.", "a.", "a-", "QUJD", "a b "]) {
+    for (const seed of ["a", "password.", "a.", "a-", "QUJD", "a b ", "sk- ", "AKIA ", "eyJaaaaaaaa ", "\u0001a"]) {
       const text = "_\u200B" + seed.repeat(Math.floor(20_000 / seed.length));
       const started = performance.now();
       containsResidualPII(text);

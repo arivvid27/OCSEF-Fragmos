@@ -72,7 +72,7 @@ export function ApprovalModal({ approval, onResolved }: { approval: Approval; on
       >
         <div className="flex items-start gap-6 px-7 pb-5 pt-6">
           <div className="flex-1">
-            <div className="text-[12px] font-medium text-[#7a5a1f]">Held for your approval</div>
+            <div className="text-[12px] font-medium text-hold-ink">Held for your approval</div>
             <h2
               id="approval-title"
               className="mt-1 font-serif text-[24px] font-medium leading-tight tracking-tight text-ink"
@@ -97,7 +97,7 @@ export function ApprovalModal({ approval, onResolved }: { approval: Approval; on
         <div className="h-[3px] bg-panel">
           <div
             className={`h-full transition-[width,background-color] duration-200 ease-linear ${
-              urgent ? "bg-risk-line" : "bg-[#a9803a]"
+              urgent ? "bg-risk-line" : "bg-hold-line"
             }`}
             style={{ width: `${Math.min(100, (left / HOLD_SECONDS) * 100)}%` }}
           />

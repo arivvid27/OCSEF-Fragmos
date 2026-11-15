@@ -8,8 +8,8 @@ function setting(name: string, fallback: number): number {
 }
 
 function clientOf(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for") || "";
-  return forwarded.split(",")[0].trim() || "unknown";
+  const forwarded = process.env.TRUST_FORWARDED_FOR === "true" ? request.headers.get("x-forwarded-for") : null;
+  return (forwarded || "").split(",")[0].trim() || "unknown";
 }
 
 export function limitServerKey(request: Request): Response | null {

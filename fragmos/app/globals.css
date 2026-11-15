@@ -14,6 +14,12 @@
   --color-terracotta: #8f3527;
   --color-risk: #f9eae8;
   --color-risk-line: #b84a39;
+  --color-local: #f1eaf2;
+  --color-local-ink: #5a3d66;
+  --color-local-line: #7a5a88;
+  --color-hold: #f6eedd;
+  --color-hold-ink: #7a5a1f;
+  --color-hold-line: #a9803a;
 
   --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
   --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;

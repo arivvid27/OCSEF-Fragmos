@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { STRUCTURED_PATTERNS, passesLuhn, type StructuredCategory } from "./patterns";
+import { BROKEN_KEY_PATTERNS, STRUCTURED_PATTERNS, passesLuhn, type StructuredCategory } from "./patterns";
 
 function categoriesIn(text: string): StructuredCategory[] {
   const found: StructuredCategory[] = [];
@@ -83,6 +83,34 @@ describe("structured patterns", () => {
     });
     it(`${category} ignores the near miss`, () => {
       expect(categoriesIn(miss)).not.toContain(category);
+    });
+  }
+});
+
+describe("broken key patterns", () => {
+  it("has one for every shape that may span whitespace", () => {
+    expect(BROKEN_KEY_PATTERNS.map((p) => p.category)).toEqual(
+      STRUCTURED_PATTERNS.filter((p) => p.acrossWhitespace).map((p) => p.category),
+    );
+  });
+
+  for (const { category, re } of BROKEN_KEY_PATTERNS) {
+    const { hit, miss } = CASES[category];
+    const keyStart = hit.lastIndexOf(" ") + 1;
+
+    it(`${category} matches the key as written`, () => {
+      expect(hit.match(re)).toEqual([hit.slice(keyStart)]);
+    });
+
+    it(`${category} matches the key with a line break at any point in it`, () => {
+      for (let at = keyStart + 1; at < hit.length; at++) {
+        const broken = hit.slice(0, at) + "\n" + hit.slice(at) + ", and so on";
+        expect(broken.match(re), JSON.stringify(broken)).toEqual([broken.slice(keyStart, hit.length + 1)]);
+      }
+    });
+
+    it(`${category} ignores the near miss`, () => {
+      expect(miss.match(re)).toBeNull();
     });
   }
 });

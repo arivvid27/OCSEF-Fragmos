@@ -130,7 +130,20 @@ describe("scrubText on disguised values", () => {
 
   it("masks a custom term in any case and through a disguise", () => {
     const { sanitized } = scrubText("Bluebird ships. bluebird slipped. Blue\u200Bbird is late.", { customTerms: ["bluebird"] });
-    expect(sanitized).toBe("[CUSTOM_1] ships. [CUSTOM_1] slipped. [CUSTOM_2] is late.");
+    expect(sanitized).toBe("[CUSTOM_1] ships. [CUSTOM_1] slipped. [CUSTOM_1] is late.");
+  });
+
+  it("gives a disguised copy of a value the token of the plain one", () => {
+    const text =
+      "Mail elena@northwood.org or elena@north\u200Bwood.org. SSN 531-62-4408, again 531-62-\u200B4408, again 531 62 4408.";
+    const { sanitized, vault } = scrubText(text);
+    expect(sanitized).toBe("Mail [EMAIL_1] or [EMAIL_1]. SSN [SSN_1], again [SSN_1], again [SSN_1].");
+    expect(vault.map((v) => [v.token, v.count])).toEqual([["[EMAIL_1]", 2], ["[SSN_1]", 3]]);
+  });
+
+  it("replaces the whole key when its first line is a key by itself", () => {
+    const { sanitized } = scrubText("key: sk-ant-" + "a".repeat(25) + "\n" + "b".repeat(10));
+    expect(sanitized).toBe("key: [API_KEY_1]");
   });
 });
 
@@ -168,6 +181,18 @@ describe("scrubText on disguised presets", () => {
           const { sanitized } = scrubText(disguise(p.text), options);
           expect(containsResidualPII(sanitized, options.disabled)).toBe(false);
         }
+      });
+    }
+  }
+
+  for (const p of PRESETS) {
+    for (const seed of [7, 23, 36]) {
+      it(`${p.id} with invisible characters, sprinkle ${seed}, scrubs to what the plain text scrubs to`, () => {
+        const expected = scrubText(p.text);
+        const { sanitized, vault } = scrubText(sprinkled(p.text, seed));
+        expect(sanitized.replace(/[\u200B\u00AD\u2060\uFEFF]/g, "")).toBe(expected.sanitized);
+        expect(vault.map((v) => [v.token, v.count])).toEqual(expected.vault.map((v) => [v.token, v.count]));
+        expect(leaksOriginal(sanitized, vault)).toBe(false);
       });
     }
   }

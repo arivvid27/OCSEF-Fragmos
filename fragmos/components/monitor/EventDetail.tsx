@@ -18,7 +18,7 @@ import { ActionChip, EntityPill } from "./ActionChip";
 import { EgressLine } from "./Feed";
 
 function rawMarkClass(upstream: UpstreamRef | null): string {
-  return upstream?.trust === "local" ? "bg-[#f1eaf2] text-[#5a3d66]" : "bg-panel text-ink";
+  return upstream?.trust === "local" ? "bg-local text-local-ink" : "bg-panel text-ink";
 }
 
 function RealText({ leaf, upstream }: { leaf: LeafDiff; upstream: UpstreamRef | null }) {
@@ -83,7 +83,7 @@ function Leaf({ leaf, upstream }: { leaf: LeafDiff; upstream: UpstreamRef | null
           </Pane>
           <p
             className={`mt-2 rounded-lg px-3 py-2 text-[12.5px] ${
-              !toolCall && upstream?.trust === "local" ? "bg-[#f1eaf2] text-[#5a3d66]" : "bg-panel text-taupe"
+              !toolCall && upstream?.trust === "local" ? "bg-local text-local-ink" : "bg-panel text-taupe"
             }`}
           >
             {unchangedNote(leaf, upstream)}

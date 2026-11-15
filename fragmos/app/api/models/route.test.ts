@@ -17,6 +17,7 @@ beforeEach(async () => {
   vi.unstubAllEnvs();
   vi.stubEnv("GEMINI_API_KEY", "server-key-for-tests");
   vi.stubEnv("GOOGLE_GENAI_USE_VERTEXAI", "");
+  vi.stubEnv("TRUST_FORWARDED_FOR", "");
   vi.spyOn(console, "error").mockImplementation(() => {});
 
   vi.resetModules();
@@ -59,13 +60,12 @@ describe("GET /api/models", () => {
     expect((await get({ "x-user-key": "short" })).status).toBe(400);
   });
 
-  it("answers 429 once a client passes the shared-key limit, but not for its own key", async () => {
+  it("answers 429 once the shared-key limit is passed, whatever address is claimed, but not for a user's own key", async () => {
     vi.stubEnv("SERVER_KEY_RATE_LIMIT", "2");
-    const headers = { "x-forwarded-for": "203.0.113.7" };
-    expect((await get(headers)).status).toBe(200);
-    expect((await get(headers)).status).toBe(200);
-    expect((await get(headers)).status).toBe(429);
-    expect((await get({ ...headers, "x-user-key": "AIzaUserKey-1234567890" })).status).toBe(200);
+    expect((await get({ "x-forwarded-for": "203.0.113.7" })).status).toBe(200);
+    expect((await get({ "x-forwarded-for": "203.0.113.8" })).status).toBe(200);
+    expect((await get({ "x-forwarded-for": "203.0.113.9" })).status).toBe(429);
+    expect((await get({ "x-user-key": "AIzaUserKey-1234567890" })).status).toBe(200);
     expect(listModels).toHaveBeenCalledTimes(3);
   });
 });

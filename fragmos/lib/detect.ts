@@ -1,7 +1,7 @@
 import { CATEGORY_META, type Category } from "./categories";
 import { findHighEntropySecrets } from "./entropy";
-import { STRUCTURED_PATTERNS, type StructuredPattern } from "./patterns";
-import { compact, decoded, readings, type View } from "./views";
+import { BROKEN_KEY_PATTERNS, STRUCTURED_PATTERNS, type StructuredPattern } from "./patterns";
+import { decoded, readings, type View } from "./views";
 
 export interface Detection {
   start: number;
@@ -32,6 +32,27 @@ function claimLongestFirst(found: Detection[], candidates: Detection[]) {
   }
 }
 
+function uniteOverlapping(candidates: Detection[]): Detection[] {
+  candidates.sort((a, b) => a.start - b.start);
+  const united: Detection[] = [];
+  let longest = 0;
+  for (const next of candidates) {
+    const last = united[united.length - 1];
+    const length = next.end - next.start;
+    if (last === undefined || next.start >= last.end) {
+      united.push({ ...next });
+      longest = length;
+      continue;
+    }
+    last.end = Math.max(last.end, next.end);
+    if (length > longest) {
+      last.category = next.category;
+      longest = length;
+    }
+  }
+  return united;
+}
+
 function collect(view: View, pattern: StructuredPattern, into: Detection[]) {
   for (const m of view.text.matchAll(pattern.re)) {
     if (pattern.validate && !pattern.validate(m[0])) {
@@ -45,20 +66,20 @@ function collect(view: View, pattern: StructuredPattern, into: Detection[]) {
 export function detectSensitive(text: string, disabled: ReadonlySet<Category> = new Set()): Detection[] {
   const asRead = readings(text);
   const views = asRead.concat(decoded(text));
-  const rejoined = compact(asRead[asRead.length - 1]);
 
-  const direct: Detection[] = [];
-  const acrossBreaks: Detection[] = [];
+  const structured: Detection[] = [];
   for (let p = 0; p < STRUCTURED_PATTERNS.length; p++) {
     const pattern = STRUCTURED_PATTERNS[p];
     if (disabled.has(pattern.category)) {
       continue;
     }
     for (let v = 0; v < views.length; v++) {
-      collect(views[v], pattern, direct);
+      collect(views[v], pattern, structured);
     }
-    if (pattern.acrossWhitespace) {
-      collect(rejoined, pattern, acrossBreaks);
+  }
+  for (let p = 0; p < BROKEN_KEY_PATTERNS.length; p++) {
+    if (!disabled.has(BROKEN_KEY_PATTERNS[p].category)) {
+      collect(asRead[asRead.length - 1], BROKEN_KEY_PATTERNS[p], structured);
     }
   }
 
@@ -71,9 +92,7 @@ export function detectSensitive(text: string, disabled: ReadonlySet<Category> = 
     }
   }
 
-  const found: Detection[] = [];
-  claimLongestFirst(found, direct);
-  claimLongestFirst(found, acrossBreaks);
+  const found = uniteOverlapping(structured);
   claimLongestFirst(found, secrets);
   return found;
 }

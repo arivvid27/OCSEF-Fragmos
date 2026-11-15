@@ -147,3 +147,18 @@ export const STRUCTURED_PATTERNS: StructuredPattern[] = [
     re: /\b(?:Project|Operation|Initiative|Codename|Client|Account|Deal)\s+(?!(?:Number|Manager|Services|Team|Executive|Name|Information|Details|Summary|Representative|Settings)\b)[A-Z][A-Za-z0-9_-]{1,24}(?:\s+[A-Z][A-Za-z0-9_-]{1,24})?\b/g,
   },
 ];
+
+const CONSUMES_NOTHING = /\\b|\(\?:|[)|?*+]|\{\d+(?:,\d*)?\}/;
+const ONE_CHARACTER = /\\.|\[(?:\\.|[^\]\\])*\]|./;
+const SOURCE_TOKEN = new RegExp("(" + CONSUMES_NOTHING.source + ")|" + ONE_CHARACTER.source, "g");
+
+function steppingOverWhitespace(re: RegExp): RegExp {
+  const source = re.source.replace(SOURCE_TOKEN, (token, consumesNothing) =>
+    consumesNothing ? token : "(?:\\s*" + token + ")",
+  );
+  return new RegExp("(?!\\s)" + source, re.flags);
+}
+
+export const BROKEN_KEY_PATTERNS: StructuredPattern[] = STRUCTURED_PATTERNS.filter((p) => p.acrossWhitespace).map(
+  (p) => ({ category: p.category, re: steppingOverWhitespace(p.re) }),
+);

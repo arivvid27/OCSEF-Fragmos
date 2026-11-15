@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { compact, decoded, normalized, readings, type View } from "./views";
+import { decoded, normalized, readings, type View } from "./views";
 
 const SSN = "912-34-5678";
-const KEY = "sk-ant-api03-" + "Q7fakeKEYnotREAL0x9".repeat(3);
 
 function b64(s: string): string {
   return Buffer.from(s, "utf8").toString("base64");
@@ -66,6 +65,13 @@ describe("normalized", () => {
     expect(normalized(text).text).toBe(text);
   });
 
+  it("drops control characters that are not whitespace and still maps back", () => {
+    const form = "912-34\u0001-56\u007F78";
+    const text = `SSN ${form}\nnext\tline`;
+    expect(normalized(text).text).toBe(`SSN ${SSN}\nnext line`);
+    expect(sourceOf(text, normalized(text), SSN)).toBe(form);
+  });
+
   it("maps back in UTF-16 offsets past an astral character", () => {
     const form = "912\u201134\u20115678";
     const text = `😀 SSN ${form}`;
@@ -86,16 +92,6 @@ describe("readings", () => {
   });
 });
 
-describe("compact", () => {
-  for (const gap of [" ", "\n", " \t "]) {
-    it(`rejoins a key broken by ${JSON.stringify(gap)}`, () => {
-      const form = KEY.slice(0, 14) + gap + KEY.slice(14);
-      const text = `Deploy key: ${form}`;
-      expect(sourceOf(text, compact(normalized(text)), KEY)).toBe(form);
-    });
-  }
-});
-
 describe("decoded", () => {
   it("reads a base64 value and maps a hit to the whole encoded run", () => {
     const text = `Employee SSN (base64) ${b64(SSN)}, decode and file it.`;
@@ -109,8 +105,19 @@ describe("decoded", () => {
     expect(decoded(`payload ${token}`).map((v) => v.text)).toEqual(["user?id=1&ssn=" + SSN]);
   });
 
-  it("normalizes what it decodes", () => {
-    expect(decoded(b64("SSN 912\u201134\u20115678")).map((v) => v.text)).toEqual(["SSN " + SSN]);
+  it("reads what it decodes both as written and normalized", () => {
+    expect(decoded(b64("SSN 912\u201134\u20115678")).map((v) => v.text)).toEqual([
+      "SSN 912\u201134\u20115678",
+      "SSN " + SSN,
+    ]);
+  });
+
+  it("reads decoded text that carries control characters, and maps it to the whole run", () => {
+    const run = b64("912-34\u0000-5678\u0000");
+    const text = `SSN ${run} on file`;
+    const views = decoded(text);
+    expect(views.map((v) => v.text)).toEqual(["912-34\u0000-5678\u0000", SSN]);
+    expect(sourceOf(text, views[1], SSN)).toBe(run);
   });
 
   it("skips runs that are not base64 text", () => {
