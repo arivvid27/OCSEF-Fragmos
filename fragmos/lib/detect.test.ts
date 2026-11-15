@@ -36,14 +36,14 @@ describe("detectSensitive", () => {
   });
 
   it("finds a key split by an invisible character", () => {
-    const form = KEY.slice(0, 20) + "​" + KEY.slice(20);
+    const form = KEY.slice(0, 20) + "\u200B" + KEY.slice(20);
     expect(found(`Deploy key: ${form}`)).toEqual(["API_KEY:" + form]);
   });
 
   it("finds a phone number and an email written with non-breaking hyphens", () => {
-    expect(found("Call (949) 555‑0142 or write elena@northwood‑usd.org")).toEqual([
-      "PHONE:(949) 555‑0142",
-      "EMAIL:elena@northwood‑usd.org",
+    expect(found("Call (949) 555\u20110142 or write elena@northwood\u2011usd.org")).toEqual([
+      "PHONE:(949) 555\u20110142",
+      "EMAIL:elena@northwood\u2011usd.org",
     ]);
   });
 
@@ -54,7 +54,7 @@ describe("detectSensitive", () => {
   it("skips disabled categories in every reading", () => {
     const off = disabledCategories([]);
     expect(detectSensitive("card 4111 1111 1111 1111", off)).toEqual([]);
-    expect(detectSensitive("card 4111‑1111‑1111‑1111", off)).toEqual([]);
+    expect(detectSensitive("card 4111\u20111111\u20111111\u20111111", off)).toEqual([]);
     expect(detectSensitive("card " + b64("4111 1111 1111 1111"), off)).toEqual([]);
   });
 });
@@ -91,7 +91,7 @@ describe("containsResidualPII", () => {
 
   it("stays fast on hostile input that forces every reading", () => {
     for (const seed of ["a", "password.", "a.", "a-", "QUJD", "a b "]) {
-      const text = "_​" + seed.repeat(Math.floor(20_000 / seed.length));
+      const text = "_\u200B" + seed.repeat(Math.floor(20_000 / seed.length));
       const started = performance.now();
       containsResidualPII(text);
       expect(performance.now() - started, seed).toBeLessThan(1000);

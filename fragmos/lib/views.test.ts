@@ -18,7 +18,7 @@ function sourceOf(text: string, view: View, needle: string): string | null {
 }
 
 describe("normalized", () => {
-  const DASHES = ["‐", "‑", "‒", "–", "—", "―", "−", "－"];
+  const DASHES = ["\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015", "\u2212", "\uFF0D"];
   for (const dash of DASHES) {
     it(`reads U+${dash.codePointAt(0)!.toString(16).toUpperCase()} as a hyphen`, () => {
       const form = SSN.replaceAll("-", dash);
@@ -27,7 +27,7 @@ describe("normalized", () => {
     });
   }
 
-  const INVISIBLES = ["​", "‌", "‍", "⁠", "﻿", "­"];
+  const INVISIBLES = ["\u200B", "\u200C", "\u200D", "\u2060", "\uFEFF", "\u00AD"];
   for (const mark of INVISIBLES) {
     it(`drops U+${mark.codePointAt(0)!.toString(16).toUpperCase()} and still maps back`, () => {
       const form = SSN.split("").join(mark);
@@ -39,11 +39,11 @@ describe("normalized", () => {
   it("reads fullwidth digits and dots as ASCII", () => {
     const digits = "９１２-３４-５６７８";
     expect(sourceOf(`SSN ${digits}`, normalized(`SSN ${digits}`), SSN)).toBe(digits);
-    const dotted = "912．34．5678";
+    const dotted = "912\uFF0E34\uFF0E5678";
     expect(sourceOf(dotted, normalized(dotted), SSN)).toBe(dotted);
   });
 
-  const SEPARATED = ["912 34 5678", "912.34.5678", "912-34.5678", "912 34 5678", "912\t34\t5678", "912_34_5678"];
+  const SEPARATED = ["912 34 5678", "912.34.5678", "912-34.5678", "912\u00A034\u00A05678", "912\t34\t5678", "912_34_5678"];
   for (const form of SEPARATED) {
     it(`hyphenates the 3-2-4 groups in ${JSON.stringify(form)}`, () => {
       const text = `SSN ${form} on file`;
@@ -63,7 +63,7 @@ describe("normalized", () => {
   });
 
   it("maps back in UTF-16 offsets past an astral character", () => {
-    const form = "912‑34‑5678";
+    const form = "912\u201134\u20115678";
     const text = `😀 SSN ${form}`;
     expect(sourceOf(text, normalized(text), SSN)).toBe(form);
   });
@@ -75,8 +75,8 @@ describe("readings", () => {
   });
 
   it("adds the normalized reading when it differs", () => {
-    expect(readings("SSN 912‑34‑5678").map((v) => v.text)).toEqual([
-      "SSN 912‑34‑5678",
+    expect(readings("SSN 912\u201134\u20115678").map((v) => v.text)).toEqual([
+      "SSN 912\u201134\u20115678",
       "SSN 912-34-5678",
     ]);
   });
@@ -106,7 +106,7 @@ describe("decoded", () => {
   });
 
   it("normalizes what it decodes", () => {
-    expect(decoded(b64("SSN 912‑34‑5678")).map((v) => v.text)).toEqual(["SSN " + SSN]);
+    expect(decoded(b64("SSN 912\u201134\u20115678")).map((v) => v.text)).toEqual(["SSN " + SSN]);
   });
 
   it("skips runs that are not base64 text", () => {

@@ -123,13 +123,13 @@ describe("scrubText on disguised values", () => {
   });
 
   it("links a name written with an invisible character to the same token", () => {
-    const text = "Marcus Vance called. Later Mar­cus called again.";
+    const text = "Marcus Vance called. Later Mar\u00ADcus called again.";
     const result = scrubText(text);
     expect(result.sanitized).toBe("[SUBJECT_1] called. Later [SUBJECT_1] called again.");
   });
 
   it("masks a custom term in any case and through a disguise", () => {
-    const { sanitized } = scrubText("Bluebird ships. bluebird slipped. Blue​bird is late.", { customTerms: ["bluebird"] });
+    const { sanitized } = scrubText("Bluebird ships. bluebird slipped. Blue\u200Bbird is late.", { customTerms: ["bluebird"] });
     expect(sanitized).toBe("[CUSTOM_1] ships. [CUSTOM_1] slipped. [CUSTOM_2] is late.");
   });
 });
@@ -171,8 +171,8 @@ describe("leaksOriginal", () => {
   });
 
   it("is true when an original remains in disguise", () => {
-    expect(leaksOriginal("SSN 531‑62‑4408 for [SUBJECT_1].", vault)).toBe(true);
-    expect(leaksOriginal("Ask Mar​cus Vance.", vault)).toBe(true);
+    expect(leaksOriginal("SSN 531\u201162\u20114408 for [SUBJECT_1].", vault)).toBe(true);
+    expect(leaksOriginal("Ask Mar\u200Bcus Vance.", vault)).toBe(true);
   });
 
   it("is false when a masked word only matches a placeholder's name", () => {

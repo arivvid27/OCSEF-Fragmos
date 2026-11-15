@@ -3,9 +3,9 @@ export interface View {
   source(start: number, end: number): [number, number];
 }
 
-const NON_ASCII = /[\u0080-￿]/;
+const NON_ASCII = /[\u0080-\uFFFF]/;
 const INVISIBLE = /\p{Cf}/u;
-const DASH = /\p{Pd}|−/u;
+const DASH = /\p{Pd}|\u2212/u;
 const SPACE = /\p{Zs}|[\t_]/u;
 const SPACED_OUT = /(?<!\S)\S(?: \S){5,}/g;
 const SSN_GROUPS = /\b(\d{3})[ .-](\d{2})[ .-](\d{4})\b/g;
