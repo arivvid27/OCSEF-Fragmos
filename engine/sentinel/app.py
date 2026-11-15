@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Any, Awaitable, Callable
 
 import yaml
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from sentinel import wire
@@ -26,6 +27,7 @@ from sentinel.upstreams import UpstreamClients, registry_from_env
 ROOT = Path(__file__).resolve().parent.parent
 MONITOR_ORIGINS = "http://127.0.0.1:3000,http://localhost:3000"
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
+KEY_NAME_MAX = 100
 
 
 class Hub:
@@ -50,6 +52,13 @@ class Hub:
         for ws, result in zip(sockets, results):
             if isinstance(result, Exception):
                 self._sockets.discard(ws)
+
+
+async def json_or_none(request: Request) -> Any:
+    try:
+        return await request.json()
+    except json.JSONDecodeError:
+        return None
 
 
 class ShellPorts:
@@ -89,6 +98,14 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
         """An agent or curl sends no Origin; a browser always does, and only the monitor's may reach in."""
         return origin is not None and origin not in origins
 
+    def browser_refusal(request: Request, posts_json: bool = False) -> JSONResponse | None:
+        if foreign(request.headers.get("origin")):
+            return JSONResponse({"error": "origin not allowed"}, status_code=403)
+        # A page can POST text/plain or a form to any host without asking; JSON makes the browser ask first, and fail.
+        if posts_json and request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+            return JSONResponse({"error": "content-type must be application/json"}, status_code=415)
+        return None
+
     @app.post("/v1/messages")
     async def messages(request: Request) -> JSONResponse:
         if foreign(request.headers.get("origin")):
@@ -118,15 +135,9 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
 
     @app.post("/api/approvals/{approval_id}")
     async def decide(approval_id: str, request: Request) -> JSONResponse:
-        if foreign(request.headers.get("origin")):
-            return JSONResponse({"error": "origin not allowed"}, status_code=403)
-        # A page can POST text/plain or a form to any host without asking; JSON makes the browser ask first, and fail.
-        if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
-            return JSONResponse({"error": "content-type must be application/json"}, status_code=415)
-        try:
-            body = await request.json()
-        except json.JSONDecodeError:
-            body = None
+        if refused := browser_refusal(request, posts_json=True):
+            return refused
+        body = await json_or_none(request)
         decision = body.get("decision") if isinstance(body, dict) else None
         verdict = {"approve": "approved", "deny": "denied"}.get(decision) if isinstance(decision, str) else None
         if verdict is None:
@@ -136,6 +147,31 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
         except KeyError:
             return JSONResponse({"error": f"no approval {approval_id}"}, status_code=404)
         return JSONResponse(row, status_code=200 if accepted else 409)
+
+    @app.get("/api/keys", response_model=None)
+    async def list_keys(request: Request) -> JSONResponse | list[dict[str, Any]]:
+        return browser_refusal(request) or [dataclasses.asdict(k) for k in store.keys()]
+
+    @app.post("/api/keys")
+    async def create_key(request: Request) -> JSONResponse:
+        if refused := browser_refusal(request, posts_json=True):
+            return refused
+        body = await json_or_none(request)
+        name = body.get("name") if isinstance(body, dict) else None
+        if not isinstance(name, str) or not 0 < len(name.strip()) <= KEY_NAME_MAX:
+            return JSONResponse({"error": f'body must be {{"name": "<1 to {KEY_NAME_MAX} characters>"}}'},
+                                status_code=400)
+        record, key = store.create_key(name.strip())
+        shown = {k: v for k, v in dataclasses.asdict(record).items() if k != "last_used_at"}
+        return JSONResponse({**shown, "key": key}, status_code=201)
+
+    @app.delete("/api/keys/{key_id}")
+    async def revoke_key(key_id: str, request: Request) -> Response:
+        if refused := browser_refusal(request):
+            return refused
+        if not store.revoke_key(key_id):
+            return JSONResponse({"error": f"no key {key_id}"}, status_code=404)
+        return Response(status_code=204)
 
     @app.get("/api/policy")
     async def get_policy() -> dict[str, Any]:

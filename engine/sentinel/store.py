@@ -2,12 +2,33 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import secrets
 import sqlite3
+import time
+import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 SCHEMA = Path(__file__).with_name("schema.sql")
+KEY_COLUMNS = "id, name, prefix, created_at, last_used_at"
+
+
+@dataclass(frozen=True)
+class ApiKey:
+    """A gateway key as the dashboard sees it. The plain key exists only in create_key's return value."""
+
+    id: str
+    name: str
+    prefix: str
+    created_at: float
+    last_used_at: float | None
+
+
+def _digest(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
 
 
 class Store:
@@ -48,3 +69,26 @@ class Store:
             "by_destination": dict(q("SELECT upstream, COUNT(*) FROM events WHERE upstream IS NOT NULL "
                                      "GROUP BY upstream")),
         }
+
+    def create_key(self, name: str) -> tuple[ApiKey, str]:
+        """(record, plain key). The key is fk_ plus 40 URL-safe characters; 30 random bytes encode to exactly 40."""
+        key = "fk_" + secrets.token_urlsafe(30)
+        record = ApiKey(uuid.uuid4().hex, name, key[:8], time.time(), None)
+        with self._db:
+            self._db.execute(f"INSERT INTO api_keys ({KEY_COLUMNS}, hash) VALUES (?, ?, ?, ?, ?, ?)",
+                             (record.id, record.name, record.prefix, record.created_at, None, _digest(key)))
+        return record, key
+
+    def keys(self) -> list[ApiKey]:
+        return [ApiKey(*row) for row in self._db.execute(f"SELECT {KEY_COLUMNS} FROM api_keys ORDER BY created_at")]
+
+    def revoke_key(self, key_id: str) -> bool:
+        with self._db:
+            return self._db.execute("DELETE FROM api_keys WHERE id = ?", (key_id,)).rowcount == 1
+
+    def use_key(self, key: str) -> str | None:
+        """The key's name, stamping last_used_at, or None for an unknown or revoked key."""
+        with self._db:
+            row = self._db.execute("UPDATE api_keys SET last_used_at = ? WHERE hash = ? RETURNING name",
+                                   (time.time(), _digest(key))).fetchone()
+        return row[0] if row else None
