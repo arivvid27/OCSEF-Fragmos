@@ -111,7 +111,7 @@ The OpenAI door handles text chat only for now.
 
 The endpoint is loopback only. SENTINEL binds `127.0.0.1` and accepts only a loopback `Host`, so a client must run on the same machine. The key, event, and approval APIs have no key of their own and rely on that, together with the `Origin` check. Reaching SENTINEL from another machine or a container needs a tunnel and an auth layer in front of every route, which is out of scope.
 
-`SENTINEL_PORT` moves the engine off port 8787. `SENTINEL_DB` moves its database, for the server and for `keys create`.
+`SENTINEL_PORT` moves the engine off port 8787, and the default `SENTINEL_PUBLIC_URL` follows it. With `make`, pass it as `make up SENTINEL_PORT=9000`, so the health probe and the demo key use the same port. `demo/agent.py` and `make check` still call 8787. `SENTINEL_DB` moves its database, for the server and for `keys create`.
 
 ## Give the three-minute demo
 

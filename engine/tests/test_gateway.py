@@ -203,3 +203,11 @@ def test_a_temperature_passes_the_real_sdk_call_and_reaches_the_network(tmp_path
     response = openai_turn(client, key, "Is 391 prime?", "s-temp", model="local", temperature=0.2, stream=stream)
     assert response.status_code == 502
     assert "upstream local unreachable" in response.json()["error"]["message"]
+
+
+def test_the_default_public_url_names_the_port_the_server_binds(tmp_path, monkeypatch):
+    monkeypatch.delenv("SENTINEL_PUBLIC_URL", raising=False)
+    monkeypatch.setenv("SENTINEL_PORT", "18941")
+    client = TestClient(create_app(db_path=tmp_path / "sentinel.db", clients=EchoUpstream()),
+                        base_url="http://127.0.0.1:18941")
+    assert client.get("/api/gateway").json()["anthropic_base_url"] == "http://127.0.0.1:18941"

@@ -20,3 +20,11 @@ def test_a_reminted_demo_key_is_private_whatever_the_umask_and_old_mode(tmp_path
                     ENGINE, stub, run], check=True, capture_output=True)
     assert key.read_text() == "fk_fresh\n"
     assert stat.S_IMODE(key.stat().st_mode) == 0o600
+
+
+def test_make_up_starts_probes_and_keys_the_engine_on_one_port():
+    planned = subprocess.run(["make", "-n", "-C", ENGINE, "up", "SENTINEL_PORT=18941"], check=True,
+                             capture_output=True, text=True).stdout
+    assert "8787" not in planned
+    assert "env SENTINEL_PORT=18941 .venv/bin/python -m sentinel" in planned
+    assert "http://127.0.0.1:18941/health" in planned and "http://127.0.0.1:18941/v1/models" in planned

@@ -29,7 +29,6 @@ from sentinel.upstreams import UpstreamClients, registry_from_env
 ROOT = Path(__file__).resolve().parent.parent
 MONITOR_ORIGINS = "http://127.0.0.1:3000,http://localhost:3000"
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
-PUBLIC_URL = "http://127.0.0.1:8787"
 NO_KEY = ("a valid Fragmos gateway key is required: create one in the dashboard or with "
           "python -m sentinel keys create <name>")
 
@@ -97,7 +96,8 @@ def create_app(db_path: Path = DEFAULT_DB, policy_path: Path = ROOT / "policy.ya
     ports = ShellPorts(clients, store, hub, desk)
     vaults: dict[tuple[str, str], Vault] = {}  # by (key name, x-sentinel-session), so one key cannot read another's
     origins = {o.strip() for o in (os.environ.get("SENTINEL_ALLOWED_ORIGINS") or MONITOR_ORIGINS).split(",")} - {""}
-    public = (os.environ.get("SENTINEL_PUBLIC_URL") or PUBLIC_URL).rstrip("/")
+    bound = f"http://127.0.0.1:{os.environ.get('SENTINEL_PORT') or 8787}"  # where python -m sentinel listens
+    public = (os.environ.get("SENTINEL_PUBLIC_URL") or bound).rstrip("/")
     models = [u.id for u in upstreams.values() if not u.simulated]  # attacker-sim exists for the scripted demo
     app = FastAPI(title="SENTINEL")
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(hosts))  # a rebound DNS name is not loopback
