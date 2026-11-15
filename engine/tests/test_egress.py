@@ -67,7 +67,7 @@ class Ports:
 def run(prompt, reply, detector=None, **ports_kw):
     ports = Ports(reply, **ports_kw)
     inbound = wire.parse_request({"model": "x", "max_tokens": 100, "messages": [{"role": "user", "content": prompt}]},
-                                 {}, frozenset(UPSTREAMS))
+                                 {}, frozenset(UPSTREAMS), client="test")
     ctx = TurnContext(UPSTREAMS, ports, POLICY, detector or FakeDetector(), Vault())
     return wire.reply_to_json(asyncio.run(run_turn(inbound, ctx))), ports
 

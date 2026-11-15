@@ -46,7 +46,7 @@ class FakePorts:
 
 def inbound(headers=None):
     body = {"model": "x", "max_tokens": 100, "messages": [{"role": "user", "content": "Is 391 prime?"}]}
-    return wire.parse_request(body, headers or {}, frozenset(UPSTREAMS))
+    return wire.parse_request(body, headers or {}, frozenset(UPSTREAMS), client="test")
 
 
 def test_turn_returns_what_the_upstream_returned_and_logs_one_event():

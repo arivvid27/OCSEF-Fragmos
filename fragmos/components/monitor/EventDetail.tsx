@@ -206,6 +206,9 @@ export function EventDetail({ event }: { event: SentinelEvent | null }) {
           <ActionChip action={event.headline} />
           <span className="font-mono text-[11.5px] text-taupe">{clock(event.created_at)}</span>
           <span className="truncate font-mono text-[11.5px] text-taupe/70">{event.session_id}</span>
+          {event.client && (
+            <span className="shrink-0 rounded-md bg-panel px-1.5 py-px text-[11.5px] text-ink">via {event.client}</span>
+          )}
           <span className="ml-auto font-mono text-[11px] text-taupe/70">stage {event.stage}</span>
         </div>
         <p className="text-[14px] leading-relaxed text-ink">{reason}</p>

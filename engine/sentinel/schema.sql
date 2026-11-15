@@ -24,3 +24,13 @@ CREATE TABLE IF NOT EXISTS approvals (
   subject     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS approvals_pending ON approvals(status) WHERE status = 'pending';
+
+-- Gateway keys. Only the SHA-256 of a key is kept; the plain key is shown once, when it is created.
+CREATE TABLE IF NOT EXISTS api_keys (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  prefix       TEXT NOT NULL,
+  hash         TEXT NOT NULL UNIQUE,
+  created_at   REAL NOT NULL,
+  last_used_at REAL
+);
