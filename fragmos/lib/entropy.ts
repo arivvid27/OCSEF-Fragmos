@@ -48,7 +48,3 @@ export function findHighEntropySecrets(text: string): SecretSpan[] {
 
   return found;
 }
-
-export function containsHighEntropySecret(text: string): boolean {
-  return findHighEntropySecrets(text).length > 0;
-}

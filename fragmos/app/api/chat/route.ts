@@ -1,6 +1,5 @@
-import { containsHighEntropySecret } from "@/lib/entropy";
-import { containsStructuredPII } from "@/lib/patterns";
-import { OPTIONAL_CATEGORIES } from "@/lib/policies";
+import { containsResidualPII } from "@/lib/detect";
+import { disabledCategories } from "@/lib/policies";
 import { KEY_PATTERN, MODEL_PATTERN, providerById, type ProviderId } from "@/lib/providers";
 import { openStream, statusOf } from "@/lib/server/llm";
 
@@ -65,7 +64,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "Prompt is too long." }, { status: 413 });
   }
 
-  if (containsStructuredPII(sanitizedPrompt, OPTIONAL_CATEGORIES) || containsHighEntropySecret(sanitizedPrompt)) {
+  if (containsResidualPII(sanitizedPrompt, disabledCategories([]))) {
     return Response.json(
       { error: "Payload rejected: it still contains an email, SSN, phone number, record ID or secret." },
       { status: 422 },
