@@ -59,7 +59,7 @@ export function passesLuhn(candidate: string): boolean {
 }
 
 export const STRUCTURED_PATTERNS: StructuredPattern[] = [
-  { category: "EMAIL", re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g },
+  { category: "EMAIL", re: /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g },
   { category: "SSN", re: /(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)/g },
   {
     category: "PHONE",
@@ -132,11 +132,11 @@ export const STRUCTURED_PATTERNS: StructuredPattern[] = [
   { category: "BASIC_AUTH", re: /\bBasic\s+[A-Za-z0-9+\/]{16,}={0,2}/g },
   {
     category: "URL_CREDENTIALS",
-    re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@\/]+:[^\s@\/]+@[^\s\/]+/gi,
+    re: /\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s:@\/]+:[^\s@\/]+@[^\s\/]+/gi,
   },
   {
     category: "SECRET_ASSIGNMENT",
-    re: /\b[A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|private[_-]?key)[A-Za-z0-9_.-]*["']?\s*[:=]\s*["']?[^\s"',;]{6,}/gi,
+    re: /(?:\b[A-Za-z0-9_.-]{0,64})?(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|private[_-]?key)[A-Za-z0-9_.-]{0,64}["']?\s*[:=]\s*["']?[^\s"',;]{6,}/gi,
   },
   {
     category: "PROJECT",

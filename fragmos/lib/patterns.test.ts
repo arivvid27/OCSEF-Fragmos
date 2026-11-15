@@ -103,3 +103,22 @@ describe("passesLuhn", () => {
     expect(passesLuhn("0".repeat(20))).toBe(false);
   });
 });
+
+describe("hostile input", () => {
+  const SEEDS = ["a", "a.", "a-", "1", "password", "password.", "a1.", "a+", "1-", "a@a.", "a://a:a"];
+
+  for (const seed of SEEDS) {
+    it(`scans 20,000 characters of ${JSON.stringify(seed)} quickly`, () => {
+      const text = seed.repeat(Math.floor(20_000 / seed.length));
+      const started = performance.now();
+      categoriesIn(text);
+      expect(performance.now() - started).toBeLessThan(500);
+    });
+  }
+
+  it("still takes the whole assignment, name included", () => {
+    const text = "export SMTP_PASSWORD=hunter2hunter2 now";
+    const pattern = STRUCTURED_PATTERNS.find((p) => p.category === "SECRET_ASSIGNMENT")!;
+    expect(text.match(pattern.re)).toEqual(["SMTP_PASSWORD=hunter2hunter2"]);
+  });
+});
