@@ -149,9 +149,10 @@ export function Connect() {
             keys={engine.keys}
             now={engine.now}
             created={created}
-            onCreated={(key) => {
-              setCreated(key);
-              editKeys((keys) => [...keys.filter((k) => k.id !== key.id), key]);
+            onCreated={(fresh) => {
+              setCreated(fresh);
+              const { id, name, prefix, created_at, last_used_at } = fresh;
+              editKeys((keys) => [...keys.filter((k) => k.id !== id), { id, name, prefix, created_at, last_used_at }]);
             }}
             onDismissCreated={() => setCreated(null)}
             onRevoked={(key) => {
