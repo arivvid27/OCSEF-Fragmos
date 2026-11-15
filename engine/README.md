@@ -173,7 +173,9 @@ Detection, policy, the vault, and the egress check live in `sentinel/core/`. Tha
 | `GET /health` | Whether cloud credentials are set, whether the local upstream answers, and the rule count. |
 | `WS /ws` | Each new event and approval as it happens. |
 
-The Monitor calls the same endpoints under `http://127.0.0.1:3000/engine/`, for example `/engine/api/events`.
+The Monitor calls its endpoints under `http://127.0.0.1:3000/engine/`, for example `/engine/api/events`. The web app forwards only `/api/events`, `/api/stats`, `/api/upstreams`, `/api/approvals` and `/ws`.
+
+SENTINEL accepts only a loopback `Host` header (`127.0.0.1` or `localhost`), so a DNS-rebound name gets 400. A browser `Origin` that is not on `SENTINEL_ALLOWED_ORIGINS` gets 403 on `/ws`, `POST /api/approvals/{id}`, and `POST /v1/messages`. The default list is `http://127.0.0.1:3000,http://localhost:3000`. Agents and curl send no `Origin`, so they are not affected. An approval also needs `Content-Type: application/json`, or it gets 415.
 
 ## Known limits
 

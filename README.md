@@ -165,7 +165,9 @@ The code lives in two directories.
 - `fragmos/` is the Next.js web app. It serves the workspace at `/` and the Monitor at `/monitor`. `fragmos/lib/` holds the browser scrubber, and `fragmos/app/api/` holds the two server routes, `/api/chat` and `/api/models`.
 - `engine/` is the SENTINEL engine, a FastAPI proxy. `engine/sentinel/core/` holds detection, policy, the vault, and the egress check, with no web framework or database imports. `engine/sentinel/presidio_detector.py` is the only module that imports Presidio. `engine/policy.yaml` holds the tiers, rules, and egress lists.
 
-The Monitor never calls port 8787 directly. `fragmos/next.config.ts` rewrites `/engine/*` to `SENTINEL_URL`, which defaults to `http://127.0.0.1:8787`, and the WebSocket goes through the same rewrite. Next.js reads `SENTINEL_URL` when `next build` or `next dev` runs. If the engine is down, the Monitor shows **The engine is not running** and retries in the background.
+The Monitor never calls port 8787 directly. `fragmos/next.config.ts` forwards the Monitor's routes under `/engine/*` to `SENTINEL_URL`, which defaults to `http://127.0.0.1:8787`, and the WebSocket goes through the same rewrite. Agent traffic (`/v1/messages`) is not forwarded.
+
+Both halves stay on this machine. The web app binds `127.0.0.1`. The engine accepts only a loopback `Host`, which stops DNS rebinding. It refuses a browser `Origin` that is not on `SENTINEL_ALLOWED_ORIGINS` (default: the web app on port 3000) for `/ws`, approvals, and `/v1/messages`. Approvals also need a JSON body, so another web page cannot send one without a preflight that fails. Next.js reads `SENTINEL_URL` when `next build` or `next dev` runs. If the engine is down, the Monitor shows **The engine is not running** and retries in the background.
 
 The root `Makefile` drives both halves. Each root target runs the matching target in `engine/Makefile` and adds the web app's part:
 
@@ -239,6 +241,8 @@ Workspace limits:
 - An em dash glued to the end of a key pulls the next word into the placeholder. `Use sk-ant-<key>—then rotate it` becomes `Use [API_KEY_1] rotate it`, and the vault entry includes "then".
 - The codename pattern also masks "Client ID" and similar phrases as `[PROJECT_1]`.
 - The server recheck on `/api/chat` reruns the patterns and the entropy check, not name detection.
+- Names encoded in base64 are not found. Name detection reads the prompt as typed, and only the structured patterns read decoded base64.
+- Without `TRUST_FORWARDED_FOR=true`, all clients share one per-client budget on the server's Gemini key.
 
 ## Next steps
 
