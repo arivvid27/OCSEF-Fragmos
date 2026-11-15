@@ -34,7 +34,7 @@ def test_assistant_history_reaches_upstream_unchanged():
                                           "content": [{"type": "text", "text": "17, 23"}], "is_error": False}]},
         ],
     )
-    inbound = wire.parse_request(body, {}, UPSTREAMS)
+    inbound = wire.parse_request(body, {}, UPSTREAMS, client="test")
     kwargs = wire.to_upstream(inbound.conversation, inbound.params)
     assert kwargs["system"] == body["system"]
     assert kwargs["messages"][1]["content"] == CAPTURED["content"]
@@ -47,20 +47,20 @@ def test_string_content_normalizes_the_same_way_every_turn():
         {"role": "assistant", "content": "hi there"},
         {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "file text"}]},
     ])
-    inbound = wire.parse_request(body, {}, UPSTREAMS)
+    inbound = wire.parse_request(body, {}, UPSTREAMS, client="test")
     first = wire.to_upstream(inbound.conversation, inbound.params)
     assert first["system"] == [{"type": "text", "text": "be brief"}]
     assert first["messages"][0]["content"] == [{"type": "text", "text": "hello"}]
     assert first["messages"][2]["content"][0]["content"] == [{"type": "text", "text": "file text"}]
 
-    again = wire.parse_request({**body, "system": first["system"], "messages": first["messages"]}, {}, UPSTREAMS)
+    again = wire.parse_request({**body, "system": first["system"], "messages": first["messages"]}, {}, UPSTREAMS, client="test")
     assert json.dumps(wire.to_upstream(again.conversation, again.params)) == json.dumps(first)
 
 
 def test_sampling_knobs_dropped_and_tool_choice_forced_auto():
     tools = [{"name": "read_file", "input_schema": {"type": "object"}}]
     body = request(temperature=0.2, top_p=0.9, top_k=5, tools=tools, tool_choice={"type": "any"})
-    inbound = wire.parse_request(body, {}, UPSTREAMS)
+    inbound = wire.parse_request(body, {}, UPSTREAMS, client="test")
     kwargs = wire.to_upstream(inbound.conversation, inbound.params)
     assert set(kwargs) == {"max_tokens", "messages", "tools", "tool_choice"}
     assert kwargs["tool_choice"] == {"type": "auto"}
@@ -68,9 +68,9 @@ def test_sampling_knobs_dropped_and_tool_choice_forced_auto():
 
 def test_headers_pick_session_upstream_and_forwarded_versions():
     headers = {"x-sentinel-session": "s1", "x-sentinel-upstream": "local", "anthropic-version": "2023-06-01"}
-    inbound = wire.parse_request(request(), headers, UPSTREAMS)
+    inbound = wire.parse_request(request(), headers, UPSTREAMS, client="test")
     assert (inbound.session_id, inbound.upstream_id, inbound.params.anthropic_version) == ("s1", "local", "2023-06-01")
-    default = wire.parse_request(request(), {}, UPSTREAMS)
+    default = wire.parse_request(request(), {}, UPSTREAMS, client="test")
     assert (default.session_id, default.upstream_id) == ("default", "cloud")
 
 
@@ -83,12 +83,12 @@ def test_headers_pick_session_upstream_and_forwarded_versions():
 ])
 def test_bad_requests_are_rejected(body, headers):
     with pytest.raises(wire.WireError):
-        wire.parse_request(body, headers, UPSTREAMS)
+        wire.parse_request(body, headers, UPSTREAMS, client="test")
 
 
 def test_rewrite_touches_text_and_tool_input_strings_but_never_thinking():
     body = request(messages=[{"role": "user", "content": "alice"}, {"role": "assistant", "content": CAPTURED["content"]}])
-    conv = wire.parse_request(body, {}, UPSTREAMS).conversation
+    conv = wire.parse_request(body, {}, UPSTREAMS, client="test").conversation
     leaves = list(conv.leaves())
     assert [leaf.text for leaf in leaves if leaf.rewritable] == ["alice", "primes.txt"]
     read_only = {leaf.text for leaf in leaves if not leaf.rewritable}
@@ -137,7 +137,7 @@ def test_every_value_sent_upstream_is_a_scanned_leaf():
             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_9", "is_error": "maybe",
                                           "content": [{"type": "text", "text": "saved"}, document]}]},
         ])
-    inbound = wire.parse_request(body, {"anthropic-beta": "files-api-2025-04-14"}, UPSTREAMS)
+    inbound = wire.parse_request(body, {"anthropic-beta": "files-api-2025-04-14"}, UPSTREAMS, client="test")
     leaves = list(inbound.leaves())
     texts = {leaf.text for leaf in leaves}
     keys = {line for leaf in leaves for line in leaf.text.split("\n")}

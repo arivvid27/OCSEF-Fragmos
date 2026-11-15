@@ -28,6 +28,8 @@ ROOT = Path(__file__).resolve().parent.parent
 MONITOR_ORIGINS = "http://127.0.0.1:3000,http://localhost:3000"
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
 KEY_NAME_MAX = 100
+NO_KEY = ("a valid Fragmos gateway key is required: create one in the dashboard or with "
+          "python -m sentinel keys create <name>")
 
 
 class Hub:
@@ -79,11 +81,13 @@ class ShellPorts:
 
 
 def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / "policy.yaml",
-               hold_seconds: float = HOLD_SECONDS, hosts: tuple[str, ...] = LOOPBACK_HOSTS) -> FastAPI:
+               hold_seconds: float = HOLD_SECONDS, hosts: tuple[str, ...] = LOOPBACK_HOSTS,
+               clients: UpstreamClients | None = None) -> FastAPI:
+    """clients replaces the real upstream calls, for tests."""
     policy = load_policy(yaml.safe_load(policy_path.read_text()))
     detector = PresidioDetector()
     upstreams = registry_from_env()
-    clients = UpstreamClients(upstreams)
+    clients = clients or UpstreamClients(upstreams)
     store = Store(db_path)
     hub = Hub()
     desk = ApprovalDesk(store.db, hub.broadcast, hold_seconds)
@@ -98,6 +102,12 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
         """An agent or curl sends no Origin; a browser always does, and only the monitor's may reach in."""
         return origin is not None and origin not in origins
 
+    def client_of(request: Request) -> str | None:
+        """The name of the live gateway key the request presents, as a Bearer token or as x-api-key."""
+        scheme, _, token = request.headers.get("authorization", "").partition(" ")
+        key = token.strip() if scheme.lower() == "bearer" else request.headers.get("x-api-key", "")
+        return store.use_key(key) if key else None
+
     def browser_refusal(request: Request, posts_json: bool = False) -> JSONResponse | None:
         if foreign(request.headers.get("origin")):
             return JSONResponse({"error": "origin not allowed"}, status_code=403)
@@ -110,8 +120,10 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
     async def messages(request: Request) -> JSONResponse:
         if foreign(request.headers.get("origin")):
             return JSONResponse(wire.error_body("permission_error", "origin not allowed"), status_code=403)
+        if (client := client_of(request)) is None:
+            return JSONResponse(wire.error_body("authentication_error", NO_KEY), status_code=401)
         try:
-            inbound = wire.parse_request(await request.json(), request.headers, frozenset(upstreams))
+            inbound = wire.parse_request(await request.json(), request.headers, frozenset(upstreams), client)
         except (wire.WireError, json.JSONDecodeError) as e:
             return JSONResponse(wire.error_body("invalid_request_error", str(e)), status_code=400)
         try:

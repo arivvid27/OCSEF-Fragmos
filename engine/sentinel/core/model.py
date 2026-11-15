@@ -230,6 +230,7 @@ class Params:
 @dataclass(frozen=True)
 class Inbound:
     session_id: str
+    client: str  # the name of the gateway key that sent it
     upstream_id: str
     conversation: Conversation
     params: Params
@@ -469,6 +470,7 @@ class Event:
 
     id: str
     session_id: str
+    client: str
     created_at: float
     updated_at: float
     stage: Stage

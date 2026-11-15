@@ -68,7 +68,7 @@ def _system(raw: Any) -> tuple[Text, ...]:
     return blocks  # type: ignore[return-value]
 
 
-def parse_request(body: Any, headers: Mapping[str, str], known_upstreams: frozenset[str]) -> Inbound:
+def parse_request(body: Any, headers: Mapping[str, str], known_upstreams: frozenset[str], client: str) -> Inbound:
     """headers must be case-insensitive or lower-cased. The agent's model, key, and sampling knobs are ignored."""
     if not isinstance(body, dict):
         raise WireError("request body must be a JSON object")
@@ -99,6 +99,7 @@ def parse_request(body: Any, headers: Mapping[str, str], known_upstreams: frozen
         raise WireError(f"malformed block: missing {e}") from e
     return Inbound(
         session_id=headers.get("x-sentinel-session") or "default",
+        client=client,
         upstream_id=upstream_id,
         conversation=Conversation(system, parsed),
         params=Params(
