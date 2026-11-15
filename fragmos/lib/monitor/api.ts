@@ -99,6 +99,7 @@ export interface SentinelEvent {
   stop_reason: string | null;
   latency_ms: Record<string, number>;
   error: string | null;
+  client?: string; // the API key's name; absent on events from before keys
 }
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
