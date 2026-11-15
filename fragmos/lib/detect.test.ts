@@ -55,6 +55,16 @@ describe("detectSensitive", () => {
     expect(found("We use sk-learn for classification tasks in the pipeline.")).toEqual([]);
   });
 
+  it("finds a key split once by a space before a lowercase chunk", () => {
+    const form = "sk-ant-" + "abcdefghijklmn" + " " + "opqrstuvwxyzab";
+    expect(found(`Deploy: ${form}.`)).toEqual(["API_KEY:" + form]);
+  });
+
+  it("finds a key split by spaces between mixed-case chunks", () => {
+    const form = "sk-ant-api03-Q7" + " fakeKEY not " + "REAL0x9";
+    expect(found(`Deploy: ${form}.`)).toEqual(["API_KEY:" + form]);
+  });
+
   it("does not join a key shape to the letters of the next word", () => {
     expect(found("the key is ASIAIOSFODNN7\nEXAMPLEthanks")).toEqual([]);
   });

@@ -160,7 +160,8 @@ function steppingOverWhitespace(re: RegExp): RegExp {
 }
 
 function notJoinedToProse(match: string): boolean {
-  return /[\r\n]/.test(match) || !match.split(/\s+/).slice(1).some((piece) => /^[a-z]{2,}$/.test(piece));
+  const words = match.split(/\s+/).slice(1).filter((piece) => /^[a-z]{2,}$/.test(piece));
+  return /[\r\n]/.test(match) || words.length < 2;
 }
 
 export const BROKEN_KEY_PATTERNS: StructuredPattern[] = STRUCTURED_PATTERNS.filter((p) => p.acrossWhitespace).map(
