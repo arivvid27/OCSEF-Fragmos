@@ -9,7 +9,6 @@ import os
 import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable
-from urllib.parse import urlsplit
 
 import yaml
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -101,8 +100,7 @@ def create_app(db_path: Path = DEFAULT_DB, policy_path: Path = ROOT / "policy.ya
     public = (os.environ.get("SENTINEL_PUBLIC_URL") or PUBLIC_URL).rstrip("/")
     models = [u.id for u in upstreams.values() if not u.simulated]  # attacker-sim exists for the scripted demo
     app = FastAPI(title="SENTINEL")
-    # A rebound DNS name is not loopback. The advertised public host is let in, so a client in a container can call.
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=[*hosts, urlsplit(public).hostname or hosts[0]])
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(hosts))  # a rebound DNS name is not loopback
 
     def foreign(origin: str | None) -> bool:
         """An agent or curl sends no Origin; a browser always does, and only the monitor's may reach in."""

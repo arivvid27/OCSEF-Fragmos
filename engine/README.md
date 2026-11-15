@@ -107,7 +107,9 @@ The OpenAI door handles text chat only for now.
 - With `"stream": true`, the reply comes as server-sent events. A role chunk comes first, then the whole answer as one chunk, a chunk with `finish_reason`, and `data: [DONE]`.
 - A blocked or denied turn answers with a normal assistant message, `[SENTINEL] Request blocked: <reason>`, so the chat shows it. A held turn waits for the Monitor's approve or deny, up to 60 seconds, before it answers.
 
-`GET /api/gateway` returns both base URLs and the model list for the dashboard. The base URLs come from `SENTINEL_PUBLIC_URL`, `http://127.0.0.1:8787` by default. SENTINEL also accepts that URL's host in the `Host` header. A client in a container that calls `host.docker.internal` needs `SENTINEL_PUBLIC_URL=http://host.docker.internal:8787`.
+`GET /api/gateway` returns both base URLs and the model list for the dashboard. The base URLs come from `SENTINEL_PUBLIC_URL`, `http://127.0.0.1:8787` by default. That value is only shown. It does not change which `Host` SENTINEL accepts.
+
+The endpoint is loopback only. SENTINEL binds `127.0.0.1` and accepts only a loopback `Host`, so a client must run on the same machine. The key, event, and approval APIs have no key of their own and rely on that, together with the `Origin` check. Reaching SENTINEL from another machine or a container needs a tunnel and an auth layer in front of every route, which is out of scope.
 
 `SENTINEL_PORT` moves the engine off port 8787. `SENTINEL_DB` moves its database, for the server and for `keys create`.
 
@@ -219,7 +221,7 @@ Detection, policy, the vault, and the egress check live in `sentinel/core/`. Tha
 
 The Monitor calls its endpoints under `http://127.0.0.1:3000/engine/`, for example `/engine/api/events`. The web app forwards only `/api/events`, `/api/stats`, `/api/upstreams`, `/api/approvals` and `/ws`.
 
-SENTINEL accepts only a loopback `Host` header (`127.0.0.1` or `localhost`) or the host of `SENTINEL_PUBLIC_URL`, so a DNS-rebound name gets 400. A browser `Origin` that is not on `SENTINEL_ALLOWED_ORIGINS` gets 403 on `/ws`, `POST /api/approvals/{id}`, every `/api/keys` route, `POST /v1/messages`, and `POST /v1/chat/completions`. The default list is `http://127.0.0.1:3000,http://localhost:3000`. Agents, chat backends, and curl send no `Origin`, so they are not affected. An approval or a new key also needs `Content-Type: application/json`, or it gets 415.
+SENTINEL accepts only a loopback `Host` header (`127.0.0.1` or `localhost`), so a DNS-rebound name gets 400. A browser `Origin` that is not on `SENTINEL_ALLOWED_ORIGINS` gets 403 on `/ws`, `POST /api/approvals/{id}`, every `/api/keys` route, `POST /v1/messages`, and `POST /v1/chat/completions`. The default list is `http://127.0.0.1:3000,http://localhost:3000`. Agents, chat backends, and curl send no `Origin`, so they are not affected. An approval or a new key also needs `Content-Type: application/json`, or it gets 415.
 
 ## Known limits
 

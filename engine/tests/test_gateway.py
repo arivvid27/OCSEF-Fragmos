@@ -185,10 +185,10 @@ def test_models_and_gateway_list_the_upstreams_a_caller_can_pick(gateway):
                                                  "models": ["cloud", "local"]}
 
 
-def test_the_public_url_comes_from_env_and_its_host_is_let_in(tmp_path, monkeypatch):
-    monkeypatch.setenv("SENTINEL_PUBLIC_URL", "http://host.docker.internal:8787/")
-    client = TestClient(create_app(db_path=tmp_path / "sentinel.db", clients=EchoUpstream()))
-    gateway = client.get("/api/gateway", headers={"host": "host.docker.internal:8787"})
-    assert gateway.status_code == 200
-    assert gateway.json()["openai_base_url"] == "http://host.docker.internal:8787/v1"
-    assert client.get("/api/gateway", headers={"host": "evil.example"}).status_code == 400
+def test_the_public_url_is_only_shown_and_its_host_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv("SENTINEL_PUBLIC_URL", "https://fragmos.tunnel.example/")
+    client = TestClient(create_app(db_path=tmp_path / "sentinel.db", clients=EchoUpstream()),
+                        base_url="http://127.0.0.1:8787")
+    assert client.get("/api/gateway").json()["openai_base_url"] == "https://fragmos.tunnel.example/v1"
+    for path in ["/api/gateway", "/api/keys", "/api/events"]:
+        assert client.get(path, headers={"host": "fragmos.tunnel.example"}).status_code == 400
