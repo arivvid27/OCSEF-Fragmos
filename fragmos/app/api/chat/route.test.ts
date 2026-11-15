@@ -34,6 +34,7 @@ beforeEach(async () => {
   vi.stubEnv("GEMINI_API_KEY", "server-key-for-tests");
   vi.stubEnv("GEMINI_MODEL", "");
   vi.stubEnv("GOOGLE_GENAI_USE_VERTEXAI", "");
+  vi.stubEnv("TRUST_FORWARDED_FOR", "");
   vi.spyOn(console, "error").mockImplementation(() => {});
 
   vi.resetModules();
@@ -199,18 +200,47 @@ describe("POST /api/chat", () => {
       expect(openStream).toHaveBeenCalledTimes(3);
     });
 
-    it("counts each client on its own", async () => {
-      vi.stubEnv("SERVER_KEY_RATE_LIMIT", "1");
-      expect((await from("203.0.113.7")).status).toBe(200);
-      expect((await from("203.0.113.7")).status).toBe(429);
-      expect((await from("203.0.113.8, 10.0.0.1")).status).toBe(200);
+    it("counts every request as one client unless told to trust X-Forwarded-For", async () => {
+      vi.stubEnv("SERVER_KEY_RATE_LIMIT", "2");
+      expect((await from("203.0.113.1")).status).toBe(200);
+      expect((await from("203.0.113.2")).status).toBe(200);
+      expect((await from("203.0.113.3")).status).toBe(429);
+      expect((await post({ sanitizedPrompt: "hello" })).status).toBe(429);
     });
 
-    it("caps all clients together, whatever address they claim", async () => {
+    it("holds the total while every request counts as one client", async () => {
+      vi.stubEnv("SERVER_KEY_RATE_LIMIT", "5");
       vi.stubEnv("SERVER_KEY_RATE_LIMIT_TOTAL", "2");
       expect((await from("203.0.113.1")).status).toBe(200);
       expect((await from("203.0.113.2")).status).toBe(200);
       expect((await from("203.0.113.3")).status).toBe(429);
+    });
+
+    describe("behind an ingress that sets X-Forwarded-For", () => {
+      beforeEach(() => {
+        vi.stubEnv("TRUST_FORWARDED_FOR", "true");
+      });
+
+      it("counts each client on its own", async () => {
+        vi.stubEnv("SERVER_KEY_RATE_LIMIT", "1");
+        expect((await from("203.0.113.7")).status).toBe(200);
+        expect((await from("203.0.113.7")).status).toBe(429);
+        expect((await from("203.0.113.8, 10.0.0.1")).status).toBe(200);
+      });
+
+      it("counts requests without the header as one client", async () => {
+        vi.stubEnv("SERVER_KEY_RATE_LIMIT", "1");
+        expect((await post({ sanitizedPrompt: "hello" })).status).toBe(200);
+        expect((await post({ sanitizedPrompt: "hello" })).status).toBe(429);
+        expect((await from("203.0.113.7")).status).toBe(200);
+      });
+
+      it("caps all clients together", async () => {
+        vi.stubEnv("SERVER_KEY_RATE_LIMIT_TOTAL", "2");
+        expect((await from("203.0.113.1")).status).toBe(200);
+        expect((await from("203.0.113.2")).status).toBe(200);
+        expect((await from("203.0.113.3")).status).toBe(429);
+      });
     });
 
     it("does not limit requests that bring their own key", async () => {
