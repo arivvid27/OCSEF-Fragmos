@@ -25,18 +25,21 @@ class View:
         return self.whole or (self.origin[start], self.origin[end - 1] + 1)
 
 
-_ASCII = str.maketrans("\t_", "  ")
 _SPACED = re.compile(r"(?<!\S)\S(?: \S){5,}")  # s k - a n t - ...
 _GROUPS = re.compile(r"\b(\d{3})[ .-](\d{2})[ .-](\d{4})\b")  # Presidio rejects an SSN with mixed separators
 _TOKEN = re.compile(r"[A-Za-z0-9+/_-]{12,}={0,2}")
 _URLSAFE = str.maketrans("-_", "+/")
 
 
-def normalized(text: str) -> View:
+def normalized(text: str, keep_underscores: bool = False) -> View:
     """NFKC; format characters such as zero-width spaces dropped; every dash a hyphen; tabs, Unicode spaces and
-    underscores a plain space; runs of single spaced-out characters joined; 3-2-4 digit groups hyphenated."""
+    underscores a plain space; runs of single spaced-out characters joined; 3-2-4 digit groups hyphenated.
+
+    keep_underscores is the reading for keys, whose underscores are part of the head (`rk_live_`); folding them is the
+    reading for an SSN that uses them as separators (`912_34_5678`)."""
+    spaces = "\t" if keep_underscores else "\t_"
     if text.isascii():
-        chars, origin = text.translate(_ASCII), range(len(text))
+        chars, origin = text.translate(str.maketrans(spaces, " " * len(spaces))), range(len(text))
     else:
         out, index = [], []
         for i, c in enumerate(text):
@@ -44,7 +47,7 @@ def normalized(text: str) -> View:
                 kind = unicodedata.category(n)
                 if kind == "Cf":
                     continue
-                out.append("-" if kind == "Pd" or n == "\u2212" else " " if kind == "Zs" or n in "\t_" else n)
+                out.append("-" if kind == "Pd" or n == "\u2212" else " " if kind == "Zs" or n in spaces else n)
                 index.append(i)
         chars, origin = "".join(out), index
     if _SPACED.search(chars):
@@ -68,7 +71,7 @@ def compact(view: View) -> View:
 
 
 def decoded(text: str) -> list[View]:
-    """Each base64 or base64url token in text that decodes to printable UTF-8, normalized."""
+    """Each base64 or base64url token in text that decodes to printable UTF-8, as decoded."""
     views = []
     for m in _TOKEN.finditer(text):
         body = m.group().rstrip("=")
@@ -79,5 +82,5 @@ def decoded(text: str) -> list[View]:
         except (binascii.Error, UnicodeDecodeError):
             continue
         if plain.strip() and plain.translate({9: None, 10: None, 13: None}).isprintable():
-            views.append(View(normalized(plain).text, (), (m.start(), m.end())))
+            views.append(View(plain, (), (m.start(), m.end())))
     return views
