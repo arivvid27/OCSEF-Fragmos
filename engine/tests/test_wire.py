@@ -190,6 +190,15 @@ def test_an_openai_chat_becomes_the_anthropic_request_the_core_forwards():
     }
 
 
+def test_empty_openai_text_never_reaches_the_upstream():
+    body = chat(messages=[{"role": "user", "content": "hi"}, {"role": "assistant", "content": ""},
+                          {"role": "user", "content": [{"type": "text", "text": ""}, {"type": "text", "text": "again"}]}])
+    assert openai_upstream_body(body)[1]["messages"] == [
+        {"role": "user", "content": [{"type": "text", "text": "hi"}]},
+        {"role": "user", "content": [{"type": "text", "text": "again"}]},
+    ]
+
+
 def test_openai_token_caps_prefer_max_completion_tokens_and_default_when_absent():
     assert openai_upstream_body(chat(max_tokens=10, max_completion_tokens=20))[1]["max_tokens"] == 20
     assert openai_upstream_body(chat(max_tokens=10, max_completion_tokens=None))[1]["max_tokens"] == 10

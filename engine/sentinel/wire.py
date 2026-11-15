@@ -130,16 +130,17 @@ OPENAI_UNSUPPORTED = "is not supported on /v1/chat/completions yet; send text me
 
 
 def _openai_content(raw: Any, role: str) -> tuple[Text, ...]:
-    """A string or an array of text parts. Every other part type (image_url, input_audio, file) is refused."""
+    """A string or an array of text parts. Every other part type (image_url, input_audio, file) is refused. Empty
+    text is dropped: Anthropic refuses an empty text block, and chat UIs keep empty replies in their history."""
     if isinstance(raw, str):
-        return (Text(raw),)
+        raw = [{"type": "text", "text": raw}]
     if not isinstance(raw, list):
         raise WireError(f"{role} content must be a string or a list of content parts")
     for part in raw:
         kind = part.get("type") if isinstance(part, dict) else None
         if kind != "text" or not isinstance(part.get("text"), str):
             raise WireError(f"content part {kind!r} {OPENAI_UNSUPPORTED}")
-    return tuple(Text(part["text"]) for part in raw)
+    return tuple(Text(part["text"]) for part in raw if part["text"])
 
 
 def parse_openai_request(body: Any, headers: Mapping[str, str], known_upstreams: frozenset[str],
@@ -164,7 +165,8 @@ def parse_openai_request(body: Any, headers: Mapping[str, str], known_upstreams:
         if role in ("system", "developer"):
             system += _openai_content(m.get("content"), role)
         elif role in ("user", "assistant"):
-            parsed.append(Message(role, _openai_content(m.get("content"), role)))
+            if content := _openai_content(m.get("content"), role):
+                parsed.append(Message(role, content))
         else:
             raise WireError("each message needs role system, developer, user or assistant")
     if not parsed:
