@@ -6,7 +6,10 @@ import math
 import re
 from collections import Counter
 from functools import lru_cache
+from pathlib import Path
 
+from gliner2 import GLiNER2
+from huggingface_hub import snapshot_download
 from presidio_analyzer import AnalyzerEngine, EntityRecognizer, Pattern, PatternRecognizer, RecognizerResult
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_analyzer.predefined_recognizers import CreditCardRecognizer, SpacyRecognizer
@@ -111,6 +114,79 @@ class EntropyRecognizer(EntityRecognizer):
         return found
 
 
+NAMES_BASE = "fastino/gliner2-privacy-filter-PII-multi"
+NAMES_REVISION = "1cb4166094dc58fa8d836429f060d6c95f62b495"
+NAMES_ADAPTER = Path(__file__).resolve().parent.parent / "models" / "gliner-names"
+NAMES_THRESHOLD = 0.7
+# The labels the adapter was trained and scored with, asked together: with `person` alone it misses names it finds
+# among the others. Only `person` is kept; the regex recognizers already own the rest.
+NAMES_SCHEMA = {
+    "person": "name of a private individual, not a famous or historical figure",
+    "email": "email address",
+    "phone_number": "phone number",
+    "street_address": "street address of a person's home",
+    "date_of_birth": "date of birth, admission, or appointment of a person",
+    "national_id_number": "US social security number",
+    "card_number": "payment card number",
+    "account_number": "bank, patient, policy, or employee account number",
+    "secret": "password, API key, access token, private key, or recovery code",
+    "personal_url": "URL of a person's private profile or a private share link",
+}
+SPACED = re.compile(r"(?<!\S)\S(?: \S){2,}(?!\w)")
+NAME_WORD = re.compile(r"[^\W\d_][\w'-]*")
+TITLE = re.compile(r"(?:Dr|Mr|Mrs|Ms|Mx|Prof|Professor)\.?", re.IGNORECASE)
+
+
+def collapse_spaced(text: str) -> tuple[str, list[int]]:
+    """Join letters written one space apart ("B A K Y T" to "BAKYT"), so a spaced name fits the model's 8-token
+    span limit. Returns the new text and, for each of its characters, the index of that character in the original."""
+    keep = [True] * len(text)
+    for m in SPACED.finditer(text):
+        for i in range(m.start() + 1, m.end(), 2):
+            keep[i] = False
+    index = [i for i, k in enumerate(keep) if k]
+    return "".join(text[i] for i in index), index
+
+
+class NameRecognizer(EntityRecognizer):
+    """PERSON from a GLiNER2 LoRA fine-tuned to find private people and pass over famous ones. Loads from local files
+    only: `make setup` downloads the base model, and the adapter ships in models/gliner-names."""
+
+    def __init__(self) -> None:
+        super().__init__(supported_entities=["PERSON"], supported_language="en")
+
+    def load(self) -> None:
+        base = snapshot_download(NAMES_BASE, revision=NAMES_REVISION, local_files_only=True)
+        self._model = GLiNER2.from_pretrained(base, map_location="cpu")
+        self._model.load_adapter(str(NAMES_ADAPTER))
+
+    def analyze(self, text: str, entities: list[str], nlp_artifacts: object = None) -> list[RecognizerResult]:
+        if "PERSON" not in entities or not text.strip():
+            return []
+        collapsed, index = collapse_spaced(text)
+        found = self._model.extract_entities_long(collapsed, NAMES_SCHEMA, threshold=NAMES_THRESHOLD,
+                                                  include_spans=True, include_confidence=True)["entities"]
+        # gliner2 appends a period to text without end punctuation, and a span can take it in.
+        ends = [(e["start"], min(e["end"], len(collapsed)), e["confidence"]) for e in found.get("person", [])]
+        names = [RecognizerResult("PERSON", index[start], index[end - 1] + 1, score)
+                 for start, end, score in ends if start < end]
+        return names + self._parts(text, names)
+
+    @staticmethod
+    def _parts(text: str, names: list[RecognizerResult]) -> list[RecognizerResult]:
+        """A lone "Marcus" after "Marcus Vance" is the same person, and the model often passes over it."""
+        score_of = {}
+        for r in names:
+            for word in NAME_WORD.findall(text[r.start:r.end]):
+                if len(word) > 1 and word[0].isupper() and not TITLE.fullmatch(word):
+                    score_of[word] = max(score_of.get(word, 0.0), r.score)
+        if not score_of:
+            return []
+        lone = re.compile(r"\b(?:%s)\b" % "|".join(map(re.escape, sorted(score_of, key=len, reverse=True))))
+        return [RecognizerResult("PERSON", m.start(), m.end(), score_of[m.group()]) for m in lone.finditer(text)
+                if not any(r.start < m.end() and m.start() < r.end for r in names)]
+
+
 def spans(results: list[RecognizerResult]) -> tuple[Span, ...]:
     claimed = [(r.start, r.end) for r in results if r.entity_type in CLAIMS]
     return tuple(Span(r.entity_type, r.start, r.end, r.score) for r in results
@@ -118,14 +194,18 @@ def spans(results: list[RecognizerResult]) -> tuple[Span, ...]:
 
 
 class PresidioDetector:
-    """Build once at boot: loading spaCy en_core_web_lg takes seconds."""
+    """Build once at boot: loading spaCy en_core_web_lg and the names model takes seconds."""
 
     def __init__(self) -> None:
         nlp = NlpEngineProvider(nlp_configuration={
             "nlp_engine_name": "spacy", "models": [{"lang_code": "en", "model_name": "en_core_web_lg"}],
         }).create_engine()
         self._engine = AnalyzerEngine(nlp_engine=nlp, supported_languages=["en"])
-        added = [PatternRecognizer(supported_entity="HEALTH", deny_list=MEDICAL_TERMS),
+        spacy = next(r for r in self._engine.registry.recognizers if isinstance(r, SpacyRecognizer))
+        self._engine.registry.remove_recognizer(spacy.name)
+        added = [SpacyRecognizer(supported_entities=[e for e in spacy.supported_entities if e != "PERSON"]),
+                 NameRecognizer(),
+                 PatternRecognizer(supported_entity="HEALTH", deny_list=MEDICAL_TERMS),
                  CreditCardRecognizer(patterns=[CARD]),  # for its Luhn check
                  EntropyRecognizer(),
                  *(PatternRecognizer(supported_entity=entity, patterns=patterns, global_regex_flags=CASE_SENSITIVE)
@@ -135,7 +215,7 @@ class PresidioDetector:
         self._supported = frozenset(self._engine.get_supported_entities(language="en"))
         self._scan = lru_cache(maxsize=4096)(self._analyze)
         self._without_ner = [r for r in self._engine.registry.get_recognizers(language="en", all_fields=True)
-                             if not isinstance(r, SpacyRecognizer)]
+                             if not isinstance(r, (SpacyRecognizer, NameRecognizer))]
         self._patterns = lru_cache(maxsize=4096)(self._match)
 
     def scan(self, text: str, entity_types: frozenset[str]) -> tuple[Span, ...]:
