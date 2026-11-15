@@ -35,8 +35,7 @@ export interface StructuredPattern {
   category: StructuredCategory;
   re: RegExp;
   validate?: (match: string) => boolean;
-  // Only shapes with a fixed prefix and alphabet are safe to match with whitespace removed.
-  rejoin?: true;
+  acrossWhitespace?: true;
 }
 
 export function passesLuhn(candidate: string): boolean {
@@ -106,12 +105,12 @@ export const STRUCTURED_PATTERNS: StructuredPattern[] = [
   {
     category: "JWT",
     re: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
-    rejoin: true,
+    acrossWhitespace: true,
   },
   {
     category: "AWS_ACCESS_KEY",
     re: /\b(?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA)[A-Z0-9]{16}\b/g,
-    rejoin: true,
+    acrossWhitespace: true,
   },
   {
     category: "AWS_SECRET_KEY",
@@ -120,15 +119,15 @@ export const STRUCTURED_PATTERNS: StructuredPattern[] = [
   {
     category: "GITHUB_TOKEN",
     re: /\b(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{50,255})\b/g,
-    rejoin: true,
+    acrossWhitespace: true,
   },
-  { category: "SLACK_TOKEN", re: /\bxox[abprs]-[A-Za-z0-9-]{10,72}\b/g, rejoin: true },
-  { category: "STRIPE_KEY", re: /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g, rejoin: true },
-  { category: "GOOGLE_API_KEY", re: /\b(?:AIza[0-9A-Za-z_-]{35}|AQ\.[0-9A-Za-z_-]{30,})/g, rejoin: true },
-  { category: "API_KEY", re: /\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}\b/g, rejoin: true },
-  { category: "SENDGRID_KEY", re: /\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b/g, rejoin: true },
-  { category: "TWILIO_KEY", re: /\b(?:AC|SK)[0-9a-f]{32}\b/g, rejoin: true },
-  { category: "NPM_TOKEN", re: /\bnpm_[A-Za-z0-9]{36}\b/g, rejoin: true },
+  { category: "SLACK_TOKEN", re: /\bxox[abprs]-[A-Za-z0-9-]{10,72}\b/g, acrossWhitespace: true },
+  { category: "STRIPE_KEY", re: /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g, acrossWhitespace: true },
+  { category: "GOOGLE_API_KEY", re: /\b(?:AIza[0-9A-Za-z_-]{35}|AQ\.[0-9A-Za-z_-]{30,})/g, acrossWhitespace: true },
+  { category: "API_KEY", re: /\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}\b/g, acrossWhitespace: true },
+  { category: "SENDGRID_KEY", re: /\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b/g, acrossWhitespace: true },
+  { category: "TWILIO_KEY", re: /\b(?:AC|SK)[0-9a-f]{32}\b/g, acrossWhitespace: true },
+  { category: "NPM_TOKEN", re: /\bnpm_[A-Za-z0-9]{36}\b/g, acrossWhitespace: true },
   {
     category: "PRIVATE_KEY",
     re: /-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----/g,

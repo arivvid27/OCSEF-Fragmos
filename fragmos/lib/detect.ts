@@ -56,7 +56,7 @@ export function detectSensitive(text: string, disabled: ReadonlySet<Category> = 
     for (let v = 0; v < views.length; v++) {
       collect(views[v], pattern, direct);
     }
-    if (pattern.rejoin) {
+    if (pattern.acrossWhitespace) {
       collect(rejoined, pattern, acrossBreaks);
     }
   }

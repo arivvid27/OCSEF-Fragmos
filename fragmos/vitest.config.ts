@@ -5,7 +5,4 @@ export default defineConfig({
   resolve: {
     alias: { "@": fileURLToPath(new URL(".", import.meta.url)) },
   },
-  test: {
-    include: ["{lib,app,components}/**/*.test.ts"],
-  },
 });

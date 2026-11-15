@@ -31,6 +31,10 @@ describe("detectSensitive", () => {
     });
   }
 
+  it("does not glue separate words into one value", () => {
+    expect(found("Ask info @ example.org today, or see https://docs.example.org :8080 @ noon.")).toEqual([]);
+  });
+
   it("finds a key split by an invisible character", () => {
     const form = KEY.slice(0, 20) + "​" + KEY.slice(20);
     expect(found(`Deploy key: ${form}`)).toEqual(["API_KEY:" + form]);
