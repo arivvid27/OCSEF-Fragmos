@@ -7,17 +7,18 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from sentinel.app import create_app
+from sentinel.app import LOOPBACK_HOSTS, create_app
 from sentinel.store import Store
 
 MONITOR = "http://127.0.0.1:3000"
 EVIL = "https://evil.example"
+HOSTS = (*LOOPBACK_HOSTS, "testserver")
 
 
 @pytest.fixture(scope="module")
 def stack(tmp_path_factory):
     db = tmp_path_factory.mktemp("app") / "sentinel.db"
-    client = TestClient(create_app(db_path=db))
+    client = TestClient(create_app(db_path=db, hosts=HOSTS))
     store = Store(db)
 
     def pending():
@@ -78,7 +79,7 @@ def test_a_json_approval_without_a_foreign_origin_is_accepted(stack, origin):
 
 def test_the_allowed_origins_come_from_env(tmp_path, monkeypatch):
     monkeypatch.setenv("SENTINEL_ALLOWED_ORIGINS", " http://monitor.test , https://ops.test ")
-    client = TestClient(create_app(db_path=tmp_path / "sentinel.db"))
+    client = TestClient(create_app(db_path=tmp_path / "sentinel.db", hosts=HOSTS))
     with client.websocket_connect("/ws", headers={"origin": "https://ops.test"}):
         pass
     with pytest.raises(WebSocketDisconnect):
@@ -88,6 +89,18 @@ def test_the_allowed_origins_come_from_env(tmp_path, monkeypatch):
 
 def test_an_empty_allow_list_in_env_keeps_the_monitor(tmp_path, monkeypatch):
     monkeypatch.setenv("SENTINEL_ALLOWED_ORIGINS", "")
-    client = TestClient(create_app(db_path=tmp_path / "sentinel.db"))
+    client = TestClient(create_app(db_path=tmp_path / "sentinel.db", hosts=HOSTS))
     with client.websocket_connect("/ws", headers={"origin": MONITOR}):
         pass
+
+
+def test_a_web_page_cannot_run_a_turn(stack):
+    client, _, _ = stack
+    response = client.post("/v1/messages", content="{}", headers={"origin": EVIL, "content-type": "text/plain"})
+    assert response.status_code == 403
+
+
+def test_a_rebound_host_name_is_refused(stack):
+    client, _, _ = stack
+    assert client.get("/api/events", headers={"host": "evil.example:8787"}).status_code == 400
+    assert client.get("/api/events", headers={"host": "127.0.0.1:8787"}).status_code == 200

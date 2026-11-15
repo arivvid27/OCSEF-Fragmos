@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Callable
 import yaml
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from sentinel import wire
 from sentinel.approvals import HOLD_SECONDS, ApprovalDesk
@@ -24,6 +25,7 @@ from sentinel.upstreams import UpstreamClients, registry_from_env
 
 ROOT = Path(__file__).resolve().parent.parent
 MONITOR_ORIGINS = "http://127.0.0.1:3000,http://localhost:3000"
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
 
 
 class Hub:
@@ -68,7 +70,7 @@ class ShellPorts:
 
 
 def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / "policy.yaml",
-               hold_seconds: float = HOLD_SECONDS) -> FastAPI:
+               hold_seconds: float = HOLD_SECONDS, hosts: tuple[str, ...] = LOOPBACK_HOSTS) -> FastAPI:
     policy = load_policy(yaml.safe_load(policy_path.read_text()))
     detector = PresidioDetector()
     upstreams = registry_from_env()
@@ -81,6 +83,7 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
     vaults: dict[str, Vault] = {}  # by x-sentinel-session
     origins = {o.strip() for o in (os.environ.get("SENTINEL_ALLOWED_ORIGINS") or MONITOR_ORIGINS).split(",")} - {""}
     app = FastAPI(title="SENTINEL")
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(hosts))  # a rebound DNS name is not loopback
 
     def foreign(origin: str | None) -> bool:
         """An agent or curl sends no Origin; a browser always does, and only the monitor's may reach in."""
@@ -88,6 +91,8 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
 
     @app.post("/v1/messages")
     async def messages(request: Request) -> JSONResponse:
+        if foreign(request.headers.get("origin")):
+            return JSONResponse(wire.error_body("permission_error", "origin not allowed"), status_code=403)
         try:
             inbound = wire.parse_request(await request.json(), request.headers, frozenset(upstreams))
         except (wire.WireError, json.JSONDecodeError) as e:
