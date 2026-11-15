@@ -96,7 +96,7 @@ def create_app(db_path: Path = DEFAULT_DB, policy_path: Path = ROOT / "policy.ya
     desk = ApprovalDesk(store.db, hub.broadcast, hold_seconds)
     desk.expire_orphans()
     ports = ShellPorts(clients, store, hub, desk)
-    vaults: dict[str, Vault] = {}  # by x-sentinel-session
+    vaults: dict[tuple[str, str], Vault] = {}  # by (key name, x-sentinel-session), so one key cannot read another's
     origins = {o.strip() for o in (os.environ.get("SENTINEL_ALLOWED_ORIGINS") or MONITOR_ORIGINS).split(",")} - {""}
     public = (os.environ.get("SENTINEL_PUBLIC_URL") or PUBLIC_URL).rstrip("/")
     models = [u.id for u in upstreams.values() if not u.simulated]  # attacker-sim exists for the scripted demo
@@ -124,7 +124,7 @@ def create_app(db_path: Path = DEFAULT_DB, policy_path: Path = ROOT / "policy.ya
 
     async def turn(inbound: Inbound) -> Reply:
         return await run_turn(inbound, TurnContext(upstreams, ports, policy, detector,
-                                                   vaults.setdefault(inbound.session_id, Vault())))
+                                                   vaults.setdefault((inbound.client, inbound.session_id), Vault())))
 
     @app.post("/v1/messages")
     async def messages(request: Request) -> JSONResponse:

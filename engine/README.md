@@ -83,7 +83,7 @@ Every call to `/v1/messages`, `/v1/chat/completions`, or `/v1/models` needs a ga
 
 The command prints the key, `fk_` and 40 more characters, and nothing else. SENTINEL stores only its SHA-256, so the key is shown once. `make up` mints a key named `demo` into `.run/demo.key` when that file is missing or the engine rejects it, and `demo/agent.py` sends it.
 
-The key's name is the event's `client` field, so the Monitor can show which app sent each turn.
+The key's name is the event's `client` field, so the Monitor can show which app sent each turn. The vault is kept per key name and session, so one app's `[PERSON_1]` never turns into another app's real name.
 
 An Anthropic client sends the key as its API key:
 

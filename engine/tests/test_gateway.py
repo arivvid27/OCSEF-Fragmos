@@ -136,6 +136,21 @@ def test_a_streamed_chat_completion_sends_a_role_chunk_the_answer_a_finish_chunk
     assert all(c["choices"][0]["finish_reason"] is None for c in chunks[:-1])
 
 
+@pytest.mark.parametrize("door", ["anthropic", "openai"])
+def test_a_key_cannot_rehydrate_another_keys_placeholders_on_the_same_session(gateway, door):
+    client, upstream = gateway
+    _, alice = mint(client, f"alice-{door}")
+    _, bob = mint(client, f"bob-{door}")
+    session = f"s-shared-{door}"
+    send = ((lambda key, text: anthropic_turn(client, {"x-api-key": key}, text, session)) if door == "anthropic" else
+            (lambda key, text: openai_turn(client, key, text, session)))
+    assert send(alice, f"Write a greeting for {NAME}.").status_code == 200
+    assert "[PERSON_1]" in json.dumps(upstream.seen[-1])
+    answer = send(bob, "[PERSON_1]")
+    assert answer.status_code == 200
+    assert NAME not in answer.text and "[PERSON_1]" in answer.text
+
+
 def test_the_openai_model_field_picks_the_upstream(gateway):
     client, _ = gateway
     _, key = mint(client)
