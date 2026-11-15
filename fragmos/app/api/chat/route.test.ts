@@ -64,6 +64,20 @@ describe("POST /api/chat", () => {
     });
   }
 
+  const SLIPPED_PAST_EARLIER: Record<string, string> = {
+    "a broken key that follows a word": "the key is ASIAIOSFODNN7\nEXAMPLE",
+    "a key whose first line is a key by itself": "key: sk-ant-" + "a".repeat(25) + "\n" + "b".repeat(10),
+    "base64 that decodes with a control character": "SSN OTEyLTM0LTU2NzgA",
+    "a value split by a control character": "SSN 531-62\u0001-4408",
+  };
+  for (const [name, prompt] of Object.entries(SLIPPED_PAST_EARLIER)) {
+    it(`answers 422 to ${name}`, async () => {
+      const res = await post({ sanitizedPrompt: prompt });
+      expect(res.status).toBe(422);
+      expect(openStream).not.toHaveBeenCalled();
+    });
+  }
+
   it("answers 422 to a residual random secret", async () => {
     const res = await post({ sanitizedPrompt: "deploy with q9Zx7Lm2Pw8Rt5Vb3Nc6Hd1Jf4 tonight" });
     expect(res.status).toBe(422);
