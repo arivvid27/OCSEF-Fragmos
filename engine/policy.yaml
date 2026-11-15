@@ -1,0 +1,31 @@
+tiers:
+  SECRET: 3
+  US_SSN: 3
+  HEALTH: 3
+  CREDIT_CARD: 3
+  US_PASSPORT: 3
+  FINANCIAL: 2
+  PERSON: 2
+  PHONE_NUMBER: 2
+  EMAIL_ADDRESS: 2
+  LOCATION: 1
+  DATE_TIME: 0
+
+rules:            # first match wins
+  - name: secrets-never-leave
+    when: { entity_in: [SECRET] }
+    action: REROUTE
+  - name: restricted-stays-local
+    when: { tier_gte: 3 }
+    action: REROUTE
+  - name: confidential-redacted
+    when: { tier_gte: 2 }
+    action: REDACT
+  - name: default
+    action: ALLOW
+
+egress:
+  allowed_domains: [localhost, 127.0.0.1, demo.sentinel.local]
+  block_if_payload_has: [SECRET, US_SSN, CREDIT_CARD]
+  hold_if_payload_has: [PERSON, EMAIL_ADDRESS, PHONE_NUMBER, HEALTH]
+  external_tools: [send_email, http_post, web_fetch]
