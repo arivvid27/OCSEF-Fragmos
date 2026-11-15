@@ -1,0 +1,13 @@
+.env
+.venv
+.audit/
+__pycache__/
+*.pyc
+node_modules/
+dist/
+*.db
+*.db-wal
+*.db-shm
+demo/outbox.jsonl
+.pytest_cache/
+.run/

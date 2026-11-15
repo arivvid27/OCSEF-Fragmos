@@ -1,9 +1,14 @@
 import type { NextConfig } from "next";
 
+const sentinelUrl = process.env.SENTINEL_URL ?? "http://127.0.0.1:8787";
+const monitorRoutes = ["/api/events", "/api/stats", "/api/upstreams", "/api/approvals", "/api/approvals/:id", "/ws"];
+
 const nextConfig: NextConfig = {
-  /* config options here */
   cacheComponents: true,
   partialPrefetching: true,
+  async rewrites() {
+    return monitorRoutes.map((route) => ({ source: `/engine${route}`, destination: `${sentinelUrl}${route}` }));
+  },
   turbopack: {
     rules: {
       "*.css": {

@@ -28,9 +28,6 @@ export function findHighEntropySecrets(text: string): SecretSpan[] {
     const start = m.index;
     const end = start + value.length;
 
-    if (text[start - 1] === "[" && text[end] === "]") {
-      continue;
-    }
     if (SNAKE_UPPER_RE.test(value)) {
       continue;
     }
@@ -50,8 +47,4 @@ export function findHighEntropySecrets(text: string): SecretSpan[] {
   }
 
   return found;
-}
-
-export function containsHighEntropySecret(text: string): boolean {
-  return findHighEntropySecrets(text).length > 0;
 }

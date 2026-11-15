@@ -1,8 +1,9 @@
-import { containsHighEntropySecret } from "@/lib/entropy";
-import { containsStructuredPII } from "@/lib/patterns";
-import { OPTIONAL_CATEGORIES } from "@/lib/policies";
-import { KEY_PATTERN, MODEL_PATTERN, providerById, type ProviderId } from "@/lib/providers";
-import { openStream, statusOf } from "@/lib/server/llm";
+import { containsResidualPII } from "@/lib/detect";
+import { disabledCategories } from "@/lib/policies";
+import type { ProviderId } from "@/lib/providers";
+import { hasServerGeminiCredentials, openStream, statusOf } from "@/lib/server/llm";
+import { limitServerKey } from "@/lib/server/rate-limit";
+import { parseChatRequest } from "@/lib/server/request";
 
 const DEFAULT_MODELS: Record<ProviderId, string[]> = {
   gemini: process.env.GEMINI_MODEL
@@ -12,7 +13,6 @@ const DEFAULT_MODELS: Record<ProviderId, string[]> = {
   gpt: ["gpt-5-mini"],
 };
 
-const MAX_PROMPT_CHARS = 20_000;
 const ATTEMPTS_PER_MODEL = 2;
 const RETRYABLE = new Set([404, 429, 500, 503, 504, 529]);
 
@@ -51,43 +51,18 @@ Rules you must follow:
 5. Complete the task the user describes, with a professional and warm tone.`;
 
 export async function POST(request: Request) {
-  let sanitizedPrompt: unknown;
-  try {
-    ({ sanitizedPrompt } = await request.json());
-  } catch {
-    return Response.json({ error: "Request body must be JSON." }, { status: 400 });
+  const parsed = await parseChatRequest(request);
+  if (parsed instanceof Response) {
+    return parsed;
   }
+  const { prompt, provider, userKey } = parsed;
 
-  if (typeof sanitizedPrompt !== "string" || !sanitizedPrompt.trim()) {
-    return Response.json({ error: "sanitizedPrompt is required." }, { status: 400 });
-  }
-  if (sanitizedPrompt.length > MAX_PROMPT_CHARS) {
-    return Response.json({ error: "Prompt is too long." }, { status: 413 });
-  }
-
-  if (containsStructuredPII(sanitizedPrompt, OPTIONAL_CATEGORIES) || containsHighEntropySecret(sanitizedPrompt)) {
+  if (containsResidualPII(prompt, disabledCategories(parsed.policies))) {
     return Response.json(
-      { error: "Payload rejected: it still contains an email, SSN, phone number, record ID or secret." },
+      { error: "Payload rejected: it still contains a value the active policies mask, such as an email, SSN, card number or secret." },
       { status: 422 },
     );
   }
-
-  const providerHeader = request.headers.get("x-provider");
-  const provider = providerHeader ? providerById(providerHeader) : providerById("gemini");
-  if (!provider) {
-    return Response.json({ error: "Unknown provider." }, { status: 400 });
-  }
-
-  const modelHeader = (request.headers.get("x-model") || "").trim();
-  if (modelHeader && !MODEL_PATTERN.test(modelHeader)) {
-    return Response.json({ error: "That model name isn't valid." }, { status: 400 });
-  }
-
-  const keyHeader = (request.headers.get("x-user-key") || "").trim();
-  if (keyHeader && !KEY_PATTERN.test(keyHeader)) {
-    return Response.json({ error: "That API key doesn't look valid." }, { status: 400 });
-  }
-  const userKey = keyHeader || undefined;
 
   if (provider.id !== "gemini" && !userKey) {
     return Response.json(
@@ -96,16 +71,19 @@ export async function POST(request: Request) {
     );
   }
   if (provider.id === "gemini" && !userKey) {
-    const hasServerKey = Boolean(process.env.GEMINI_API_KEY) || process.env.GOOGLE_GENAI_USE_VERTEXAI === "true";
-    if (!hasServerKey) {
+    if (!hasServerGeminiCredentials()) {
       return Response.json(
         { error: "No Gemini key available. Add your own in Settings, or set GEMINI_API_KEY on the server." },
         { status: 503 },
       );
     }
+    const limited = limitServerKey(request);
+    if (limited) {
+      return limited;
+    }
   }
 
-  const models = modelHeader ? [modelHeader] : DEFAULT_MODELS[provider.id];
+  const models = parsed.model ? [parsed.model] : DEFAULT_MODELS[provider.id];
 
   let upstream: ReadableStream<Uint8Array> | undefined;
   let failedWith: number | undefined;
@@ -117,7 +95,7 @@ export async function POST(request: Request) {
           model: model,
           key: userKey,
           system: SYSTEM_INSTRUCTION,
-          prompt: sanitizedPrompt,
+          prompt: prompt,
         });
       } catch (err) {
         failedWith = statusOf(err);

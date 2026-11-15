@@ -16,6 +16,10 @@ export interface Call {
   prompt: string;
 }
 
+export function hasServerGeminiCredentials(): boolean {
+  return Boolean(process.env.GEMINI_API_KEY) || process.env.GOOGLE_GENAI_USE_VERTEXAI === "true";
+}
+
 export function statusOf(err: unknown): number | undefined {
   if (err instanceof UpstreamError) {
     return err.status;
@@ -29,47 +33,46 @@ export function statusOf(err: unknown): number | undefined {
 }
 
 export function textStream(body: ReadableStream<Uint8Array>, pick: (data: string) => string) {
+  const reader = body.getReader();
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
 
+  function textOf(line: string): string {
+    if (!line.startsWith("data:")) {
+      return "";
+    }
+    const data = line.slice(5).trim();
+    if (data === "" || data === "[DONE]") {
+      return "";
+    }
+    try {
+      return pick(data);
+    } catch (err) {
+      if (err instanceof UpstreamError) {
+        throw err;
+      }
+      return "";
+    }
+  }
+
   return new ReadableStream<Uint8Array>({
     async start(controller) {
-      const reader = body.getReader();
       let buffer = "";
       try {
         for (;;) {
           const { done, value } = await reader.read();
-          if (done) {
-            break;
-          }
-          buffer += decoder.decode(value, { stream: true });
+          buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = done ? "" : lines.pop() || "";
 
-          let newline = buffer.indexOf("\n");
-          while (newline !== -1) {
-            const line = buffer.slice(0, newline).trim();
-            buffer = buffer.slice(newline + 1);
-            newline = buffer.indexOf("\n");
-
-            if (!line.startsWith("data:")) {
-              continue;
-            }
-            const data = line.slice(5).trim();
-            if (data === "" || data === "[DONE]") {
-              continue;
-            }
-
-            let text = "";
-            try {
-              text = pick(data);
-            } catch (err) {
-              if (err instanceof UpstreamError) {
-                throw err;
-              }
-              continue;
-            }
+          for (const line of lines) {
+            const text = textOf(line.trim());
             if (text) {
               controller.enqueue(encoder.encode(text));
             }
+          }
+          if (done) {
+            break;
           }
         }
         controller.close();
@@ -77,8 +80,8 @@ export function textStream(body: ReadableStream<Uint8Array>, pick: (data: string
         controller.error(err);
       }
     },
-    cancel() {
-      return body.cancel();
+    cancel(reason) {
+      return reader.cancel(reason);
     },
   });
 }
@@ -99,19 +102,17 @@ export function pickOpenAI(data: string): string {
   return event.choices?.[0]?.delta?.content || "";
 }
 
-async function openGemini(call: Call) {
+function geminiClient(userKey?: string) {
+  if (userKey) {
+    return new GoogleGenAI({ apiKey: userKey, vertexai: false });
+  }
   const envKey = process.env.GEMINI_API_KEY;
   const useVertex = process.env.GOOGLE_GENAI_USE_VERTEXAI === "true";
+  return new GoogleGenAI(envKey && !useVertex ? { apiKey: envKey } : {});
+}
 
-  let options = {};
-  if (call.key) {
-    options = { apiKey: call.key };
-  } else if (envKey && !useVertex) {
-    options = { apiKey: envKey };
-  }
-
-  const ai = new GoogleGenAI(options);
-  const upstream = await ai.models.generateContentStream({
+async function openGemini(call: Call) {
+  const upstream = await geminiClient(call.key).models.generateContentStream({
     model: call.model,
     contents: call.prompt,
     config: { systemInstruction: call.system, temperature: 0.4 },
@@ -183,18 +184,7 @@ function newestFirst(ids: string[]): string[] {
 }
 
 async function listGemini(key?: string): Promise<string[]> {
-  const envKey = process.env.GEMINI_API_KEY;
-  const useVertex = process.env.GOOGLE_GENAI_USE_VERTEXAI === "true";
-
-  let options = {};
-  if (key) {
-    options = { apiKey: key };
-  } else if (envKey && !useVertex) {
-    options = { apiKey: envKey };
-  }
-
-  const ai = new GoogleGenAI(options);
-  const pager = await ai.models.list({ config: { pageSize: 100 } });
+  const pager = await geminiClient(key).models.list({ config: { pageSize: 100 } });
   const ids: string[] = [];
   for await (const m of pager) {
     const id = (m.name || "").replace("models/", "");

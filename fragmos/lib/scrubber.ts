@@ -1,7 +1,7 @@
 import nlp from "compromise";
 import { CATEGORY_META, type Category } from "./categories";
-import { findHighEntropySecrets } from "./entropy";
-import { STRUCTURED_PATTERNS } from "./patterns";
+import { detectSensitive, maskPlaceholders, overlaps, type Detection } from "./detect";
+import { normalized, readings, type View } from "./views";
 
 export interface VaultEntry {
   token: string;
@@ -25,12 +25,6 @@ export interface ScrubResult {
   vault: VaultEntry[];
   spans: RiskSpan[];
   elapsedMs: number;
-}
-
-interface RawSpan {
-  start: number;
-  end: number;
-  category: Category;
 }
 
 export interface ScrubOptions {
@@ -68,15 +62,6 @@ const DOCUMENT_WORDS = [
 const LEADING_WORDS = /^(?:The|A|An|At|In|Of|From|To|For|By|With|And)\s+/;
 const TITLES = /^(?:Dr|Mr|Mrs|Ms|Mx|Prof|Professor)\.?\s+/i;
 
-function isTaken(spans: RawSpan[], start: number, end: number) {
-  for (let i = 0; i < spans.length; i++) {
-    if (start < spans[i].end && end > spans[i].start) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function escapeForRegex(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -100,76 +85,50 @@ function atSentenceStart(text: string, phrase: string) {
 }
 
 function nameKey(original: string) {
-  const noTitle = original.replace(TITLES, "");
+  const noTitle = normalized(original).text.replace(TITLES, "");
   return noTitle.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function findAll(text: string, entity: string, category: Category, taken: RawSpan[], flags = "gu") {
+function wholeWord(entity: string, flags: string) {
   const body = escapeForRegex(entity).replace(/\s+/g, "\\s+");
-  const re = new RegExp("(?<![\\p{L}\\p{N}])" + body + "(?![\\p{L}\\p{N}])", flags);
-  const matches = text.matchAll(re);
-  for (const m of matches) {
-    const start = m.index;
-    const end = start + m[0].length;
-    if (isTaken(taken, start, end) === false) {
-      taken.push({ start: start, end: end, category: category });
+  return new RegExp("(?<![\\p{L}\\p{N}])" + body + "(?![\\p{L}\\p{N}])", flags);
+}
+
+function findAll(views: View[], entity: string, category: Category, taken: Detection[], flags = "gu") {
+  const re = wholeWord(entity, flags);
+  for (let v = 0; v < views.length; v++) {
+    for (const m of views[v].text.matchAll(re)) {
+      const [start, end] = views[v].source(m.index, m.index + m[0].length);
+      if (overlaps(taken, start, end) === false) {
+        taken.push({ start: start, end: end, category: category });
+      }
     }
   }
 }
 
-function claimLongestFirst(text: string, list: Map<string, Category>, taken: RawSpan[]) {
+function claimLongestFirst(views: View[], list: Map<string, Category>, taken: Detection[]) {
   const sorted = Array.from(list.entries());
   sorted.sort(function (a, b) {
     return b[0].length - a[0].length;
   });
   for (let i = 0; i < sorted.length; i++) {
-    findAll(text, sorted[i][0], sorted[i][1], taken);
+    findAll(views, sorted[i][0], sorted[i][1], taken);
   }
 }
 
 export function scrubText(text: string, options: ScrubOptions = {}): ScrubResult {
   const startTime = performance.now();
-  const taken: RawSpan[] = [];
   const disabled = options.disabled || new Set<Category>();
+  const taken = detectSensitive(text, disabled);
 
-  const candidates: RawSpan[] = [];
-  for (let p = 0; p < STRUCTURED_PATTERNS.length; p++) {
-    const pattern = STRUCTURED_PATTERNS[p];
-    if (disabled.has(pattern.category)) {
-      continue;
-    }
-    const matches = text.matchAll(pattern.re);
-    for (const m of matches) {
-      if (pattern.validate && pattern.validate(m[0]) === false) {
-        continue;
-      }
-      candidates.push({ start: m.index, end: m.index + m[0].length, category: pattern.category });
-    }
-  }
-
-  candidates.sort(function (a, b) {
-    return b.end - b.start - (a.end - a.start) || a.start - b.start;
-  });
-  for (let i = 0; i < candidates.length; i++) {
-    if (isTaken(taken, candidates[i].start, candidates[i].end) === false) {
-      taken.push(candidates[i]);
-    }
-  }
-
-  const secrets = findHighEntropySecrets(text);
-  for (let i = 0; i < secrets.length; i++) {
-    if (isTaken(taken, secrets[i].start, secrets[i].end) === false) {
-      taken.push({ start: secrets[i].start, end: secrets[i].end, category: "HIGH_ENTROPY_SECRET" });
-    }
-  }
-
+  const asTyped = readings(text);
   const customTerms = (options.customTerms || []).slice();
   customTerms.sort(function (a, b) {
     return b.length - a.length;
   });
   for (let i = 0; i < customTerms.length; i++) {
     if (customTerms[i].trim().length >= 2) {
-      findAll(text, customTerms[i].trim(), "CUSTOM", taken, "giu");
+      findAll(asTyped, customTerms[i].trim(), "CUSTOM", taken, "giu");
     }
   }
 
@@ -181,7 +140,9 @@ export function scrubText(text: string, options: ScrubOptions = {}): ScrubResult
       masked = before + " ".repeat(taken[i].end - taken[i].start) + after;
     }
 
-    const doc = nlp(masked);
+    const asMasked = readings(masked);
+    const clean = asMasked[asMasked.length - 1];
+    const doc = nlp(clean.text);
     const found = new Map<string, Category>();
 
     function remember(raw: string, category: Category) {
@@ -202,7 +163,7 @@ export function scrubText(text: string, options: ScrubOptions = {}): ScrubResult
       remember(orgs[i], "INSTITUTION");
     }
 
-    const schoolMatches = masked.matchAll(INSTITUTION_RE);
+    const schoolMatches = clean.text.matchAll(INSTITUTION_RE);
     for (const m of schoolMatches) {
       remember(m[0], "INSTITUTION");
     }
@@ -211,7 +172,7 @@ export function scrubText(text: string, options: ScrubOptions = {}): ScrubResult
     for (let i = 0; i < runs.length; i++) {
       const words = tidy(runs[i]).split(/\s+/);
       let usable = words;
-      if (words.length >= 3 && atSentenceStart(masked, runs[i])) {
+      if (words.length >= 3 && atSentenceStart(clean.text, runs[i])) {
         usable = words.slice(1);
       }
       if (usable.length < 2) {
@@ -228,7 +189,7 @@ export function scrubText(text: string, options: ScrubOptions = {}): ScrubResult
       }
     }
 
-    claimLongestFirst(masked, found, taken);
+    claimLongestFirst(asMasked, found, taken);
 
     const nameParts = new Map<string, Category>();
     for (let i = 0; i < taken.length; i++) {
@@ -244,22 +205,23 @@ export function scrubText(text: string, options: ScrubOptions = {}): ScrubResult
         }
       }
     }
-    claimLongestFirst(masked, nameParts, taken);
+    claimLongestFirst(asMasked, nameParts, taken);
 
     if (disabled.has("ENTITY") === false) {
-      for (const m of masked.matchAll(/\b[A-Z]{2,10}\b/g)) {
-        if (CAPS_STOPWORDS.has(m[0]) || isTaken(taken, m.index, m.index + m[0].length)) {
+      for (const m of clean.text.matchAll(/\b[A-Z]{2,10}\b/g)) {
+        const [start, end] = clean.source(m.index, m.index + m[0].length);
+        if (CAPS_STOPWORDS.has(m[0]) || overlaps(taken, start, end)) {
           continue;
         }
-        const lineStart = masked.lastIndexOf("\n", m.index) + 1;
-        let lineEnd = masked.indexOf("\n", m.index);
+        const lineStart = clean.text.lastIndexOf("\n", m.index) + 1;
+        let lineEnd = clean.text.indexOf("\n", m.index);
         if (lineEnd === -1) {
-          lineEnd = masked.length;
+          lineEnd = clean.text.length;
         }
-        if (/[a-z]/.test(masked.slice(lineStart, lineEnd)) === false) {
+        if (/[a-z]/.test(clean.text.slice(lineStart, lineEnd)) === false) {
           continue;
         }
-        taken.push({ start: m.index, end: m.index + m[0].length, category: "ENTITY" });
+        taken.push({ start: start, end: end, category: "ENTITY" });
       }
     }
   }
@@ -317,7 +279,7 @@ export function scrubText(text: string, options: ScrubOptions = {}): ScrubResult
   };
 }
 
-function makeKeyLookup(text: string, taken: RawSpan[]) {
+function makeKeyLookup(text: string, taken: Detection[]) {
   const fullNames: string[] = [];
   for (let i = 0; i < taken.length; i++) {
     if (taken[i].category !== "SUBJECT") {
@@ -333,7 +295,7 @@ function makeKeyLookup(text: string, taken: RawSpan[]) {
 
   return function (category: Category, original: string) {
     if (category !== "SUBJECT") {
-      return category + ":" + original.toLowerCase().replace(/\s+/g, " ");
+      return category + ":" + normalized(original).text.toLowerCase().replace(/\s+/g, " ");
     }
 
     const key = nameKey(original);
@@ -359,17 +321,23 @@ function makeKeyLookup(text: string, taken: RawSpan[]) {
 }
 
 export function leaksOriginal(sanitized: string, vault: VaultEntry[]): boolean {
+  const sent = readings(maskPlaceholders(sanitized));
   for (let i = 0; i < vault.length; i++) {
-    const body = escapeForRegex(vault[i].original);
-    const re = new RegExp("(?<![\\p{L}\\p{N}])" + body + "(?![\\p{L}\\p{N}])", "iu");
-    if (re.test(sanitized)) {
-      return true;
+    const forms = new Set([vault[i].original, normalized(vault[i].original).text]);
+    for (const form of forms) {
+      if (form === "") {
+        continue;
+      }
+      const re = wholeWord(form, "iu");
+      if (sent.some((view) => re.test(view.text))) {
+        return true;
+      }
     }
   }
   return false;
 }
 
-const TOKEN_RE =/\[\s*([A-Z][A-Z0-9_]*_\d+)\s*\]/g;
+const TOKEN_RE = /\[\s*([A-Z][A-Z0-9_]*_\d+)\s*\]/g;
 
 export interface RehydratedSegment {
   text: string;
