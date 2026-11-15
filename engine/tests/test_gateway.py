@@ -34,7 +34,10 @@ class EchoUpstream:
 def gateway(tmp_path_factory):
     upstream = EchoUpstream()
     db = tmp_path_factory.mktemp("gateway") / "sentinel.db"
-    client = TestClient(create_app(db_path=db, hosts=(*LOOPBACK_HOSTS, "testserver"), clients=upstream))
+    with pytest.MonkeyPatch.context() as env:
+        env.delenv("SENTINEL_PUBLIC_URL", raising=False)
+        env.delenv("SENTINEL_PORT", raising=False)
+        client = TestClient(create_app(db_path=db, hosts=(*LOOPBACK_HOSTS, "testserver"), clients=upstream))
     return client, upstream
 
 
