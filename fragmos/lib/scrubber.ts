@@ -140,7 +140,9 @@ export function scrubText(text: string, options: ScrubOptions = {}): ScrubResult
       masked = before + " ".repeat(taken[i].end - taken[i].start) + after;
     }
 
-    const doc = nlp(masked);
+    const asMasked = readings(masked);
+    const clean = asMasked[asMasked.length - 1];
+    const doc = nlp(clean.text);
     const found = new Map<string, Category>();
 
     function remember(raw: string, category: Category) {
@@ -161,7 +163,7 @@ export function scrubText(text: string, options: ScrubOptions = {}): ScrubResult
       remember(orgs[i], "INSTITUTION");
     }
 
-    const schoolMatches = masked.matchAll(INSTITUTION_RE);
+    const schoolMatches = clean.text.matchAll(INSTITUTION_RE);
     for (const m of schoolMatches) {
       remember(m[0], "INSTITUTION");
     }
@@ -170,7 +172,7 @@ export function scrubText(text: string, options: ScrubOptions = {}): ScrubResult
     for (let i = 0; i < runs.length; i++) {
       const words = tidy(runs[i]).split(/\s+/);
       let usable = words;
-      if (words.length >= 3 && atSentenceStart(masked, runs[i])) {
+      if (words.length >= 3 && atSentenceStart(clean.text, runs[i])) {
         usable = words.slice(1);
       }
       if (usable.length < 2) {
@@ -187,7 +189,6 @@ export function scrubText(text: string, options: ScrubOptions = {}): ScrubResult
       }
     }
 
-    const asMasked = readings(masked);
     claimLongestFirst(asMasked, found, taken);
 
     const nameParts = new Map<string, Category>();
@@ -207,19 +208,20 @@ export function scrubText(text: string, options: ScrubOptions = {}): ScrubResult
     claimLongestFirst(asMasked, nameParts, taken);
 
     if (disabled.has("ENTITY") === false) {
-      for (const m of masked.matchAll(/\b[A-Z]{2,10}\b/g)) {
-        if (CAPS_STOPWORDS.has(m[0]) || overlaps(taken, m.index, m.index + m[0].length)) {
+      for (const m of clean.text.matchAll(/\b[A-Z]{2,10}\b/g)) {
+        const [start, end] = clean.source(m.index, m.index + m[0].length);
+        if (CAPS_STOPWORDS.has(m[0]) || overlaps(taken, start, end)) {
           continue;
         }
-        const lineStart = masked.lastIndexOf("\n", m.index) + 1;
-        let lineEnd = masked.indexOf("\n", m.index);
+        const lineStart = clean.text.lastIndexOf("\n", m.index) + 1;
+        let lineEnd = clean.text.indexOf("\n", m.index);
         if (lineEnd === -1) {
-          lineEnd = masked.length;
+          lineEnd = clean.text.length;
         }
-        if (/[a-z]/.test(masked.slice(lineStart, lineEnd)) === false) {
+        if (/[a-z]/.test(clean.text.slice(lineStart, lineEnd)) === false) {
           continue;
         }
-        taken.push({ start: m.index, end: m.index + m[0].length, category: "ENTITY" });
+        taken.push({ start: start, end: end, category: "ENTITY" });
       }
     }
   }

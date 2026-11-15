@@ -185,6 +185,18 @@ describe("scrubText on disguised presets", () => {
     }
   }
 
+  for (const p of PRESETS) {
+    for (const seed of [7, 23, 36]) {
+      it(`${p.id} with invisible characters, sprinkle ${seed}, scrubs to what the plain text scrubs to`, () => {
+        const expected = scrubText(p.text);
+        const { sanitized, vault } = scrubText(sprinkled(p.text, seed));
+        expect(sanitized.replace(/[\u200B\u00AD\u2060\uFEFF]/g, "")).toBe(expected.sanitized);
+        expect(vault.map((v) => [v.token, v.count])).toEqual(expected.vault.map((v) => [v.token, v.count]));
+        expect(leaksOriginal(sanitized, vault)).toBe(false);
+      });
+    }
+  }
+
   it("leaves no tail of a secret that an invisible character splits", () => {
     const text = "aws_secret_access_key = wJalrXUtnFEMI/K\uFEFF7MDENG/bP\uFEFFxRfiCYEXAMPLEKEY\nSTRIPE_KEY=sk\u200B_test_51Nex\uFEFFampleFakeKey0099";
     expect(scrubText(text).sanitized).toBe("[AWS_SECRET_KEY_1]\nSTRIPE_KEY=[STRIPE_KEY_1]");
