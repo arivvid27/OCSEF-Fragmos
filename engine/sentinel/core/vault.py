@@ -2,6 +2,9 @@
 
 Append-only: a value never changes placeholder and a placeholder never changes value. That makes masking
 idempotent, so re-masking rehydrated history reproduces the bytes the upstream saw last turn.
+
+One person is one placeholder: "Dr. Elena Rostova" and a later lone "Rostova" share a token, as in Fragmos, and the
+token rehydrates to the name first minted for it.
 """
 
 from __future__ import annotations
@@ -12,6 +15,8 @@ from dataclasses import dataclass, field
 from .model import Conversation, Detection, Finding, Leaf, LeafDiff, Mark, Reply, Text, ToolUse
 
 PLACEHOLDER = re.compile(r"\[[A-Z][A-Z_]*_\d+\]")
+NAME = "PERSON"
+_TITLE = re.compile(r"^(?:Dr|Mr|Mrs|Ms|Mx|Prof|Professor)\.?\s+", re.IGNORECASE)
 
 REDACTION_NOTE = (
     "Privacy note from SENTINEL: tokens like [PERSON_1] or [EMAIL_ADDRESS_2] are placeholders for real values "
@@ -28,6 +33,7 @@ class Vault:
     _value_of: dict[str, str] = field(default_factory=dict)
     _type_of: dict[str, str] = field(default_factory=dict)
     _count: dict[str, int] = field(default_factory=dict)
+    _full_names: dict[str, str] = field(default_factory=dict)  # "elena rostova" -> its token
     _known: re.Pattern[str] | None = None
 
     def __len__(self) -> int:
@@ -37,13 +43,32 @@ class Vault:
         return token in self._value_of
 
     def token_for(self, entity_type: str, value: str) -> str:
-        """A value keeps the type it was first minted under."""
+        """A value keeps the type it was first minted under. A name reuses the token of the one full name it
+        spells or is a part of; a part of two full names is nobody in particular and gets its own."""
         if value not in self._token_of:
-            n = self._count[entity_type] = self._count.get(entity_type, 0) + 1
-            token = f"[{entity_type}_{n}]"
-            self._token_of[value], self._value_of[token], self._type_of[token] = token, value, entity_type
+            name = _name_key(value) if entity_type == NAME else None
+            token = self._person(name) if name else None
+            if token is None:
+                n = self._count[entity_type] = self._count.get(entity_type, 0) + 1
+                token = f"[{entity_type}_{n}]"
+                self._value_of[token], self._type_of[token] = value, entity_type
+                if name and " " in name:
+                    self._full_names[name] = token
+            self._token_of[value] = token
             self._known = re.compile("|".join(re.escape(v) for v in sorted(self._token_of, key=len, reverse=True)))
         return self._token_of[value]
+
+    def mint(self, values: list[tuple[str, str]]) -> None:
+        """Tokens for (entity type, value) pairs in the order given, except that full names go first, so a lone
+        part earlier in the same request still finds the name it belongs to."""
+        for entity_type, value in sorted(values, key=lambda v: v[0] == NAME and " " not in _name_key(v[1])):
+            self.token_for(entity_type, value)
+
+    def _person(self, name: str) -> str | None:
+        if " " in name:
+            return self._full_names.get(name)
+        holders = [token for full, token in self._full_names.items() if name in full.split()]
+        return holders[0] if len(holders) == 1 else None
 
     def substitute(self, text: str) -> tuple[str, tuple[Mark, ...]]:
         """Every known value replaced by its token, longest first. Marks are offsets into the original text."""
@@ -70,6 +95,11 @@ class Vault:
         return "".join(out), tuple(marks)
 
 
+def _name_key(value: str) -> str:
+    """'Dr.  Elena Rostova' -> 'elena rostova'."""
+    return " ".join(_TITLE.sub("", value.strip()).lower().split())
+
+
 def _clusters(findings: list[Finding]) -> list[list[Finding]]:
     """Overlapping spans in one leaf, grouped. Presidio's CSV PERSON spans swallow SSNs whole or in part."""
     groups: list[list[Finding]] = []
@@ -88,11 +118,13 @@ def _mint(detection: Detection, leaf_texts: dict, vault: Vault, entity_types: fr
     for f in detection.findings:
         if f.source == "detector" and not f.read_only and f.entity_type in entity_types:
             by_path.setdefault(f.path, []).append(f)
+    values = []
     for path, findings in by_path.items():
         for group in _clusters(findings):
             start, end = min(f.start for f in group), max(f.end for f in group)
             top = max(group, key=lambda f: (f.tier, f.end - f.start))
-            vault.token_for(top.entity_type, leaf_texts[path][start:end])
+            values.append((top.entity_type, leaf_texts[path][start:end]))
+    vault.mint(values)
 
 
 def redact(conversation: Conversation, detection: Detection, vault: Vault, entity_types: frozenset[str],

@@ -11,13 +11,15 @@ from .vault import PLACEHOLDER, Vault
 from .views import compact, decoded, normalized
 
 VIEW_TYPES = frozenset({"US_SSN", "SECRET"})
-SURE = 0.5  # a delimited SSN or a secret pattern; a bare run of nine digits scores 0.05
+SURE = 0.5  # a delimited SSN or a key with its own head; a bare run of nine digits scores 0.05
+SHAPED = 0.05  # the least a pattern match scores; below it a detector is guessing from randomness alone
 _FRAGMENT = re.compile(r"\S*\d\S*")
 
 
 class Detector(Protocol):
     def scan(self, text: str, entity_types: frozenset[str]) -> Sequence[Span]:
-        """Spans of the requested types only, deterministic for the same text."""
+        """Spans of the requested types only, deterministic for the same text. A span found by randomness alone,
+        with no pattern behind it, scores below SHAPED."""
         ...
 
     def patterns(self, text: str, entity_types: frozenset[str]) -> Sequence[Span]:
@@ -50,8 +52,9 @@ def scan_leaf(leaf: Leaf, detector: Detector, vault: Vault, tiers: Mapping[str, 
         spans = detector.patterns(residue, VIEW_TYPES & frozenset(tiers))
     else:
         spans = (detector.patterns if leaf.identifier else detector.scan)(residue, frozenset(tiers))
+    floor = SHAPED if leaf.identifier or leaf.encoded else 0  # ids and media bytes are random by design
     for s in spans:
-        if any(s.start < end and start < s.end for start, end in tokens):
+        if s.score < floor or any(s.start < end and start < s.end for start, end in tokens):
             continue
         offset = next((d for end, d in reversed(shifts) if end <= s.start), 0)
         start, end = s.start + offset, s.end + offset
@@ -67,20 +70,20 @@ def _disguised(leaf: Leaf, detector: Detector, tiers: Mapping[str, Tier], found:
     wanted = VIEW_TYPES & frozenset(tiers)
     if not wanted:
         return []
-    views = [(v, wanted) for v in decoded(leaf.text)]
+    views = [(v, wanted, SHAPED) for v in decoded(leaf.text)]
     if not leaf.encoded:  # bytes have no dashes or spacing to disguise; their one other reading is the decoded one
         plain = normalized(leaf.text)
         if plain.text != leaf.text:
-            views.append((plain, wanted))
-        if "SECRET" in wanted:
-            views.append((compact(plain), frozenset({"SECRET"})))
+            views.append((plain, wanted, SHAPED))
+        if "SECRET" in wanted:  # with no spaces left, prose reads as one random run and as `name:value` pairs
+            views.append((compact(plain), frozenset({"SECRET"}), SURE))
 
     seen = [(f.entity_type, f.start, f.end) for f in found]
     extra = []
-    for view, types in views:
+    for view, types, floor in views:
         for s in detector.patterns(view.text, types):
             start, end = view.source(s.start, s.end)
-            if any(t == s.entity_type and a <= start and end <= b for t, a, b in seen):
+            if s.score < floor or any(t == s.entity_type and a <= start and end <= b for t, a, b in seen):
                 continue
             seen.append((s.entity_type, start, end))
             extra.append(Finding(s.entity_type, tiers[s.entity_type], leaf.path, start, end, s.score,
