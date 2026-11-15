@@ -102,7 +102,7 @@ In Open WebUI, add an OpenAI API connection under **Admin Settings > Connections
 The OpenAI door handles text chat only for now.
 
 - `system` and `developer` messages become the system prompt.
-- `max_completion_tokens` or `max_tokens` caps the reply, 4096 by default. `temperature` is forwarded.
+- `max_completion_tokens` or `max_tokens` caps the reply, 4096 by default. `temperature`, `top_p`, and other sampling knobs are dropped, as on `/v1/messages`, because the Anthropic SDK SENTINEL calls upstream has no field for them.
 - Images, audio, files, `tools`, and tool calls get 400.
 - With `"stream": true`, the reply comes as server-sent events. A role chunk comes first, then the whole answer as one chunk, a chunk with `finish_reason`, and `data: [DONE]`.
 - A blocked or denied turn answers with a normal assistant message, `[SENTINEL] Request blocked: <reason>`, so the chat shows it. A held turn waits for the Monitor's approve or deny, up to 60 seconds, before it answers.

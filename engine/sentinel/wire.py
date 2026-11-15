@@ -176,15 +176,12 @@ def parse_openai_request(body: Any, headers: Mapping[str, str], known_upstreams:
     upstream_id = model if picked else _routed_upstream(headers, known_upstreams)
     cap = next((body[k] for k in ("max_completion_tokens", "max_tokens") if body.get(k) is not None),
                OPENAI_MAX_TOKENS)
-    temperature = body.get("temperature")
-    if temperature is not None and (not isinstance(temperature, (int, float)) or isinstance(temperature, bool)):
-        raise WireError("temperature must be a number")
     return Inbound(
         session_id=headers.get("x-sentinel-session") or "default",
         client=client,
         upstream_id=upstream_id,
         conversation=Conversation(tuple(system), tuple(parsed)),
-        params=Params(max_tokens=_int(cap, "max_tokens"), temperature=temperature),
+        params=Params(max_tokens=_int(cap, "max_tokens")),
     )
 
 
@@ -220,8 +217,6 @@ def to_upstream(conversation: Conversation, params: Params) -> dict[str, Any]:
         kwargs["tool_choice"] = {"type": "auto"}
     if params.stop_sequences:
         kwargs["stop_sequences"] = list(params.stop_sequences)
-    if params.temperature is not None:
-        kwargs["temperature"] = params.temperature
     return kwargs
 
 

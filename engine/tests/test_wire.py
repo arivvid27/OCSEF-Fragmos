@@ -180,7 +180,6 @@ def test_an_openai_chat_becomes_the_anthropic_request_the_core_forwards():
     assert upstream == "cloud"
     assert sent == {
         "max_tokens": 300,
-        "temperature": 0.3,
         "system": [{"type": "text", "text": "Be brief."}, {"type": "text", "text": "Answer in English."}],
         "messages": [
             {"role": "user", "content": [{"type": "text", "text": "Hi,"}, {"type": "text", "text": "who are you?"}]},
@@ -219,8 +218,7 @@ def test_the_openai_model_picks_an_upstream_and_anything_else_routes_like_the_an
     chat(messages=[{"role": "system", "content": "only a system prompt"}]),
     chat(messages=[]),
     chat(max_tokens="many"),
-    chat(temperature="warm"),
-], ids=["image", "tools", "tool-calls", "tool-role", "system-only", "empty", "max-tokens", "temperature"])
+], ids=["image", "tools", "tool-calls", "tool-role", "system-only", "empty", "max-tokens"])
 def test_openai_requests_the_core_cannot_carry_yet_are_refused(body):
     with pytest.raises(wire.WireError):
         wire.parse_openai_request(body, {}, UPSTREAMS, client="test")

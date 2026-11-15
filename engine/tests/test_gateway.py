@@ -192,3 +192,14 @@ def test_the_public_url_is_only_shown_and_its_host_is_refused(tmp_path, monkeypa
     assert client.get("/api/gateway").json()["openai_base_url"] == "https://fragmos.tunnel.example/v1"
     for path in ["/api/gateway", "/api/keys", "/api/events"]:
         assert client.get(path, headers={"host": "fragmos.tunnel.example"}).status_code == 400
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_a_temperature_passes_the_real_sdk_call_and_reaches_the_network(tmp_path, monkeypatch, stream):
+    monkeypatch.setenv("SENTINEL_LOCAL_BASE_URL", "http://127.0.0.1:9")
+    client = TestClient(create_app(db_path=tmp_path / "sentinel.db"), base_url="http://127.0.0.1:8787",
+                        raise_server_exceptions=False)
+    _, key = mint(client)
+    response = openai_turn(client, key, "Is 391 prime?", "s-temp", model="local", temperature=0.2, stream=stream)
+    assert response.status_code == 502
+    assert "upstream local unreachable" in response.json()["error"]["message"]
