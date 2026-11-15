@@ -293,7 +293,7 @@ function makeKeyLookup(text: string, taken: Detection[]) {
 
   return function (category: Category, original: string) {
     if (category !== "SUBJECT") {
-      return category + ":" + original.toLowerCase().replace(/\s+/g, " ");
+      return category + ":" + normalized(original).text.toLowerCase().replace(/\s+/g, " ");
     }
 
     const key = nameKey(original);

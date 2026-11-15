@@ -130,7 +130,15 @@ describe("scrubText on disguised values", () => {
 
   it("masks a custom term in any case and through a disguise", () => {
     const { sanitized } = scrubText("Bluebird ships. bluebird slipped. Blue\u200Bbird is late.", { customTerms: ["bluebird"] });
-    expect(sanitized).toBe("[CUSTOM_1] ships. [CUSTOM_1] slipped. [CUSTOM_2] is late.");
+    expect(sanitized).toBe("[CUSTOM_1] ships. [CUSTOM_1] slipped. [CUSTOM_1] is late.");
+  });
+
+  it("gives a disguised copy of a value the token of the plain one", () => {
+    const text =
+      "Mail elena@northwood.org or elena@north\u200Bwood.org. SSN 531-62-4408, again 531-62-\u200B4408, again 531 62 4408.";
+    const { sanitized, vault } = scrubText(text);
+    expect(sanitized).toBe("Mail [EMAIL_1] or [EMAIL_1]. SSN [SSN_1], again [SSN_1], again [SSN_1].");
+    expect(vault.map((v) => [v.token, v.count])).toEqual([["[EMAIL_1]", 2], ["[SSN_1]", 3]]);
   });
 
   it("replaces the whole key when its first line is a key by itself", () => {
