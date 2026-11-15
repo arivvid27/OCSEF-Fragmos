@@ -51,8 +51,20 @@ describe("detectSensitive", () => {
     expect(found(`the token is ${jwt}.`)).toEqual(["JWT:" + jwt]);
   });
 
-  it("leaves prose that starts like a key alone", () => {
-    expect(found("We use sk-learn for classification tasks in the pipeline.")).toEqual([]);
+  it("finds a key split once with words after it", () => {
+    const form = "sk-ant-" + "abcdefghijklmn" + " " + "opqrstuvwxyzabcdefghijklmnopqr";
+    expect(found(`Deploy: ${form} please.`)).toEqual(["API_KEY:" + form + " please"]);
+  });
+
+  it("does not stretch a whole key across a space into the words after it", () => {
+    const key = "sk-ant-api03-" + "Q7fakeKEYnotREAL0x9abc";
+    expect(found(`Deploy: ${key} please rotate it.`)).toEqual(["API_KEY:" + key]);
+  });
+
+  it("fails closed on a word that starts like a key prefix", () => {
+    expect(found("We use sk-learn for classification tasks.")).toEqual([
+      "API_KEY:sk-learn for classification tasks",
+    ]);
   });
 
   it("finds a key split once by a space before a lowercase chunk", () => {

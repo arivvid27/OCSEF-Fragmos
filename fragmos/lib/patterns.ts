@@ -159,11 +159,11 @@ function steppingOverWhitespace(re: RegExp): RegExp {
   return new RegExp("(?!\\s)" + source, re.flags);
 }
 
-function notJoinedToProse(match: string): boolean {
-  const words = match.split(/\s+/).slice(1).filter((piece) => /^[a-z]{2,}$/.test(piece));
-  return /[\r\n]/.test(match) || words.length < 2;
+function joinsAnIncompleteKey(re: RegExp): (match: string) => boolean {
+  const whole = new RegExp("^(?:" + re.source + ")", re.flags.replace("g", ""));
+  return (match) => /[\r\n]/.test(match) || !whole.test(match.split(/\s+/)[0]);
 }
 
 export const BROKEN_KEY_PATTERNS: StructuredPattern[] = STRUCTURED_PATTERNS.filter((p) => p.acrossWhitespace).map(
-  (p) => ({ category: p.category, re: steppingOverWhitespace(p.re), validate: notJoinedToProse }),
+  (p) => ({ category: p.category, re: steppingOverWhitespace(p.re), validate: joinsAnIncompleteKey(p.re) }),
 );
