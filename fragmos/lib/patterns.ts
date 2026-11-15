@@ -28,11 +28,34 @@ export type StructuredCategory =
   | "BEARER_TOKEN"
   | "BASIC_AUTH"
   | "URL_CREDENTIALS"
-  | "SECRET_ASSIGNMENT";
+  | "SECRET_ASSIGNMENT"
+  | "PROJECT";
 
 export interface StructuredPattern {
   category: StructuredCategory;
   re: RegExp;
+  validate?: (match: string) => boolean;
+}
+
+export function passesLuhn(candidate: string): boolean {
+  const digits = candidate.replace(/\D/g, "");
+  if (digits.length < 13 || digits.length > 19) {
+    return false;
+  }
+  let sum = 0;
+  let double = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let d = digits.charCodeAt(i) - 48;
+    if (double) {
+      d = d * 2;
+      if (d > 9) {
+        d = d - 9;
+      }
+    }
+    sum = sum + d;
+    double = !double;
+  }
+  return sum % 10 === 0;
 }
 
 export const STRUCTURED_PATTERNS: StructuredPattern[] = [
@@ -49,6 +72,7 @@ export const STRUCTURED_PATTERNS: StructuredPattern[] = [
   {
     category: "CREDIT_CARD",
     re: /(?<![\d-])(?:3[47]\d{2}[\s-]?\d{6}[\s-]?\d{5}|(?:\d{4}[\s-]?){3}\d{4})(?![\d-])/g,
+    validate: passesLuhn,
   },
   {
     category: "IBAN",
@@ -114,8 +138,23 @@ export const STRUCTURED_PATTERNS: StructuredPattern[] = [
     category: "SECRET_ASSIGNMENT",
     re: /\b[A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|private[_-]?key)[A-Za-z0-9_.-]*["']?\s*[:=]\s*["']?[^\s"',;]{6,}/gi,
   },
+  {
+    category: "PROJECT",
+    re: /\b(?:Project|Operation|Initiative|Codename|Client|Account|Deal)\s+(?!(?:Number|Manager|Services|Team|Executive|Name|Information|Details|Summary|Representative|Settings)\b)[A-Z][A-Za-z0-9_-]{1,24}(?:\s+[A-Z][A-Za-z0-9_-]{1,24})?\b/g,
+  },
 ];
 
-export function containsStructuredPII(text: string): boolean {
-  return STRUCTURED_PATTERNS.some(({ re }) => text.search(re) !== -1);
+export function containsStructuredPII(text: string, skip?: ReadonlySet<string>): boolean {
+  for (let i = 0; i < STRUCTURED_PATTERNS.length; i++) {
+    const pattern = STRUCTURED_PATTERNS[i];
+    if (skip && skip.has(pattern.category)) {
+      continue;
+    }
+    for (const m of text.matchAll(pattern.re)) {
+      if (!pattern.validate || pattern.validate(m[0])) {
+        return true;
+      }
+    }
+  }
+  return false;
 }

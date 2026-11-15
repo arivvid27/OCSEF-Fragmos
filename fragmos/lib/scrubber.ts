@@ -1,5 +1,6 @@
 import nlp from "compromise";
 import { CATEGORY_META, type Category } from "./categories";
+import { findHighEntropySecrets } from "./entropy";
 import { STRUCTURED_PATTERNS } from "./patterns";
 
 export interface VaultEntry {
@@ -31,6 +32,23 @@ interface RawSpan {
   end: number;
   category: Category;
 }
+
+export interface ScrubOptions {
+  customTerms?: string[];
+  disabled?: ReadonlySet<Category>;
+}
+
+const CAPS_STOPWORDS = new Set([
+  "THE", "AND", "FOR", "NOT", "BUT", "ALL", "ANY", "YES", "OK", "NO", "OR", "IF", "IN", "ON", "AT", "TO",
+  "OF", "BY", "AS", "IS", "IT", "WE", "US", "UK", "EU", "AM", "PM", "TBD", "ASAP", "FYI", "NOTE", "TODO",
+  "TASK", "DRAFT", "URGENT", "CONFIDENTIAL", "IEP", "API", "PDF", "USA", "URL", "HTML", "HTTP", "HTTPS",
+  "JSON", "SQL", "FAQ", "CEO", "CFO", "CTO", "HR", "IT", "AI", "ID", "IDS", "SSN", "DOB", "MRN", "PII", "PHI",
+  "FERPA", "HIPAA", "COPPA", "CCPA", "GDPR", "NIST", "PCI", "DSS", "SOC", "GLBA", "OWASP", "ADHD", "ASD",
+  "ELL", "ESL", "SLD", "FAPE", "LRE", "BIP", "FBA", "MRI", "ER", "ICU", "ED", "RN", "MD", "DR", "II", "III",
+  "IV", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "IL", "IA", "KS", "KY", "LA", "ME",
+  "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR",
+  "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC",
+]);
 
 const SCHOOL_WORDS =
   "(?:Unified |Public |Independent )?School District|High School|Middle School|Elementary School|Elementary|Academy|University|College|Medical Center|Health Center|Hospital|Clinic|Health System";
@@ -86,9 +104,9 @@ function nameKey(original: string) {
   return noTitle.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function findAll(text: string, entity: string, category: Category, taken: RawSpan[]) {
+function findAll(text: string, entity: string, category: Category, taken: RawSpan[], flags = "gu") {
   const body = escapeForRegex(entity).replace(/\s+/g, "\\s+");
-  const re = new RegExp("(?<![\\p{L}\\p{N}])" + body + "(?![\\p{L}\\p{N}])", "gu");
+  const re = new RegExp("(?<![\\p{L}\\p{N}])" + body + "(?![\\p{L}\\p{N}])", flags);
   const matches = text.matchAll(re);
   for (const m of matches) {
     const start = m.index;
@@ -109,19 +127,49 @@ function claimLongestFirst(text: string, list: Map<string, Category>, taken: Raw
   }
 }
 
-export function scrubText(text: string): ScrubResult {
+export function scrubText(text: string, options: ScrubOptions = {}): ScrubResult {
   const startTime = performance.now();
   const taken: RawSpan[] = [];
+  const disabled = options.disabled || new Set<Category>();
 
+  const candidates: RawSpan[] = [];
   for (let p = 0; p < STRUCTURED_PATTERNS.length; p++) {
     const pattern = STRUCTURED_PATTERNS[p];
+    if (disabled.has(pattern.category)) {
+      continue;
+    }
     const matches = text.matchAll(pattern.re);
     for (const m of matches) {
-      const start = m.index;
-      const end = start + m[0].length;
-      if (isTaken(taken, start, end) === false) {
-        taken.push({ start: start, end: end, category: pattern.category });
+      if (pattern.validate && pattern.validate(m[0]) === false) {
+        continue;
       }
+      candidates.push({ start: m.index, end: m.index + m[0].length, category: pattern.category });
+    }
+  }
+
+  candidates.sort(function (a, b) {
+    return b.end - b.start - (a.end - a.start) || a.start - b.start;
+  });
+  for (let i = 0; i < candidates.length; i++) {
+    if (isTaken(taken, candidates[i].start, candidates[i].end) === false) {
+      taken.push(candidates[i]);
+    }
+  }
+
+  const secrets = findHighEntropySecrets(text);
+  for (let i = 0; i < secrets.length; i++) {
+    if (isTaken(taken, secrets[i].start, secrets[i].end) === false) {
+      taken.push({ start: secrets[i].start, end: secrets[i].end, category: "HIGH_ENTROPY_SECRET" });
+    }
+  }
+
+  const customTerms = (options.customTerms || []).slice();
+  customTerms.sort(function (a, b) {
+    return b.length - a.length;
+  });
+  for (let i = 0; i < customTerms.length; i++) {
+    if (customTerms[i].trim().length >= 2) {
+      findAll(text, customTerms[i].trim(), "CUSTOM", taken, "giu");
     }
   }
 
@@ -197,6 +245,23 @@ export function scrubText(text: string): ScrubResult {
       }
     }
     claimLongestFirst(masked, nameParts, taken);
+
+    if (disabled.has("ENTITY") === false) {
+      for (const m of masked.matchAll(/\b[A-Z]{2,10}\b/g)) {
+        if (CAPS_STOPWORDS.has(m[0]) || isTaken(taken, m.index, m.index + m[0].length)) {
+          continue;
+        }
+        const lineStart = masked.lastIndexOf("\n", m.index) + 1;
+        let lineEnd = masked.indexOf("\n", m.index);
+        if (lineEnd === -1) {
+          lineEnd = masked.length;
+        }
+        if (/[a-z]/.test(masked.slice(lineStart, lineEnd)) === false) {
+          continue;
+        }
+        taken.push({ start: m.index, end: m.index + m[0].length, category: "ENTITY" });
+      }
+    }
   }
 
   taken.sort(function (a, b) {
@@ -293,7 +358,18 @@ function makeKeyLookup(text: string, taken: RawSpan[]) {
   };
 }
 
-const TOKEN_RE = /\[\s*([A-Z][A-Z0-9_]*_\d+)\s*\]/g;
+export function leaksOriginal(sanitized: string, vault: VaultEntry[]): boolean {
+  for (let i = 0; i < vault.length; i++) {
+    const body = escapeForRegex(vault[i].original);
+    const re = new RegExp("(?<![\\p{L}\\p{N}])" + body + "(?![\\p{L}\\p{N}])", "iu");
+    if (re.test(sanitized)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const TOKEN_RE =/\[\s*([A-Z][A-Z0-9_]*_\d+)\s*\]/g;
 
 export interface RehydratedSegment {
   text: string;

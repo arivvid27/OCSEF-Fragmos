@@ -2,7 +2,9 @@ import type { StructuredCategory } from "./patterns";
 
 type CoreCategory = "SUBJECT" | "INSTITUTION" | "EMAIL" | "SSN" | "RECORD_ID" | "PHONE";
 
-export type Category = CoreCategory | StructuredCategory;
+type DetectedCategory = "ENTITY" | "CUSTOM" | "HIGH_ENTROPY_SECRET";
+
+export type Category = CoreCategory | StructuredCategory | DetectedCategory;
 
 export interface CategoryMeta {
   label: string;
@@ -100,7 +102,20 @@ const secret: CategoryMeta = {
 
 const named = (base: CategoryMeta, label: string): CategoryMeta => ({ ...base, label });
 
-const EXTRA_META: Record<Exclude<StructuredCategory, CoreCategory>, CategoryMeta> = {
+const confidential: CategoryMeta = {
+  label: "Confidential Name or Codename",
+  regulation: "NIST SP 800-122 · organizational confidentiality policy",
+  whySensitive:
+    "Project, client and deal names are not personal data, but they identify unreleased work and relationships. A codename can be a common word, so it is caught by its surrounding wording rather than by a list.",
+  consequence:
+    "Sent to an external model, an internal codename can be retained or surface in other outputs, leaking unannounced plans or client relationships.",
+};
+
+const EXTRA_META: Record<Exclude<Category, CoreCategory>, CategoryMeta> = {
+  PROJECT: named(confidential, "Project / Codename"),
+  ENTITY: named(confidential, "Unrecognized Name (review suggested)"),
+  CUSTOM: named(confidential, "Marked by You"),
+  HIGH_ENTROPY_SECRET: named(secret, "High-Entropy Secret"),
   CREDIT_CARD: named(financial, "Payment Card Number"),
   IBAN: named(financial, "Bank Account (IBAN)"),
   CRYPTO_WALLET: named(financial, "Crypto Wallet Address"),
