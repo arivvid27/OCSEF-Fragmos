@@ -71,7 +71,7 @@ def compact(view: View) -> View:
 
 
 def decoded(text: str) -> list[View]:
-    """Each base64 or base64url token in text that decodes to printable UTF-8, as decoded."""
+    """Each base64 or base64url token in text that decodes to printable UTF-8."""
     views = []
     for m in _TOKEN.finditer(text):
         body = m.group().rstrip("=")
