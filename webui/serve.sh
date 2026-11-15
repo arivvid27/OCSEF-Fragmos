@@ -4,6 +4,8 @@
 # ENABLE_PERSISTENT_CONFIG=False makes these values win over what an earlier boot saved in data/.
 # The chat id goes out as x-sentinel-session, so each chat is one engine session with its own vault.
 # OFFLINE_MODE stops the version check and Hugging Face downloads. An empty RAG_EMBEDDING_MODEL skips loading one.
+# Only the admin can change the provider, so the admin's password is random, kept in data/, and not needed for the demo.
+# Everyone else signs up as role user, which cannot reach the connection settings.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 port=${PORT:-8080}
@@ -17,11 +19,19 @@ key=$(cat "$key_file")
 mkdir -p "$data"
 cd "$data"  # open-webui serve writes .webui_secret_key to the working directory
 data=$PWD
+admin_password_file=$data/admin.password
+test -s "$admin_password_file" || (umask 077; "$here/.venv/bin/python" -c 'import secrets; print(secrets.token_urlsafe(24))' >"$admin_password_file")
 
 exec env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_US.UTF-8}" \
 	DATA_DIR="$data" \
 	ENABLE_PERSISTENT_CONFIG=False \
-	WEBUI_AUTH=False \
+	WEBUI_AUTH=True \
+	WEBUI_ADMIN_EMAIL=admin@localhost \
+	WEBUI_ADMIN_PASSWORD="$(cat "$admin_password_file")" \
+	WEBUI_ADMIN_NAME="Fragmos admin" \
+	ENABLE_SIGNUP=True \
+	DEFAULT_USER_ROLE=user \
+	BYPASS_MODEL_ACCESS_CONTROL=True \
 	CORS_ALLOW_ORIGIN="http://127.0.0.1:$port;http://localhost:$port" \
 	ENABLE_OLLAMA_API=False \
 	OPENAI_API_BASE_URLS="$engine" \

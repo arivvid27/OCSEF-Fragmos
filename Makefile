@@ -35,9 +35,14 @@ webui:
 		(cd engine && .venv/bin/python -m sentinel keys create openwebui) >$(WEBUI_KEY).new && mv $(WEBUI_KEY).new $(WEBUI_KEY) \
 			&& echo "minted gateway key openwebui into $(WEBUI_KEY)" || { echo "could not mint the openwebui key"; exit 1; }; \
 	fi
-	@$(call start,webui,$(WEBUI_PORT),env PORT=$(WEBUI_PORT) FRAGMOS_ENGINE_URL=$(FRAGMOS_ENGINE_URL) FRAGMOS_KEY_FILE=$(WEBUI_KEY) FRAGMOS_CHAT_MODEL=$(FRAGMOS_CHAT_MODEL) webui/serve.sh)
-	@for i in $$(seq 240); do curl -sf -o /dev/null http://127.0.0.1:$(WEBUI_PORT)/health && break; sleep 0.5; done; \
-		curl -sf -o /dev/null http://127.0.0.1:$(WEBUI_PORT)/health || { echo "Open WebUI did not come up; see $(RUN)/webui.log"; exit 1; }
+	@$(webui_start)
+# The start that creates the admin turns signup off until the next start.
+	@curl -s http://127.0.0.1:$(WEBUI_PORT)/api/config | grep -q '"enable_signup":true' || { $(webui_stop); $(webui_start); }
+
+webui_start = $(call start,webui,$(WEBUI_PORT),env PORT=$(WEBUI_PORT) FRAGMOS_ENGINE_URL=$(FRAGMOS_ENGINE_URL) FRAGMOS_KEY_FILE=$(WEBUI_KEY) FRAGMOS_CHAT_MODEL=$(FRAGMOS_CHAT_MODEL) webui/serve.sh); \
+	for i in $$(seq 240); do curl -sf -o /dev/null http://127.0.0.1:$(WEBUI_PORT)/health && break; sleep 0.5; done; \
+	curl -sf -o /dev/null http://127.0.0.1:$(WEBUI_PORT)/health || { echo "Open WebUI did not come up; see $(RUN)/webui.log"; exit 1; }
+webui_stop = $(call stop,webui); for i in $$(seq 100); do lsof -nP -iTCP:$(WEBUI_PORT) -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 0.2; done
 
 down:
 	@$(call stop,web webui)
