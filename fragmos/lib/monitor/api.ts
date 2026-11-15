@@ -99,6 +99,7 @@ export interface SentinelEvent {
   stop_reason: string | null;
   latency_ms: Record<string, number>;
   error: string | null;
+  client?: string; // the API key's name; absent on events from before keys
 }
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -149,7 +150,7 @@ export interface Upstream {
 
 export type ServerMessage = { kind: "event"; data: SentinelEvent } | { kind: "approval"; data: Approval };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -190,7 +191,7 @@ export function parseServerMessage(text: string): ServerMessage | null {
 }
 
 // next.config.ts rewrites /engine/* to the SENTINEL engine, the WebSocket included.
-const ENGINE = "/engine";
+export const ENGINE = "/engine";
 
 async function getJson(path: string): Promise<unknown> {
   const res = await fetch(`${ENGINE}${path}`);

@@ -77,6 +77,7 @@ def event_of(turn: Turn) -> Event:
     return Event(
         id=turn.id,
         session_id=turn.inbound.session_id,
+        client=turn.inbound.client,
         created_at=turn.created_at,
         updated_at=time.time(),
         stage=turn.stage,

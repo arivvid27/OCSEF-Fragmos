@@ -19,7 +19,7 @@ import "@xyflow/react/dist/base.css";
 import "./flow.css";
 import { useEffect, useMemo } from "react";
 import { ACTIONS, type EventId, type Hop, type SentinelEvent, type Upstream } from "@/lib/monitor/api";
-import { upstreamTitle } from "@/lib/monitor/event";
+import { clock, upstreamTitle } from "@/lib/monitor/event";
 import { edgeId, kindOf, latestTouching, layout, nameOf, type Graph, type NodeKind } from "@/lib/monitor/graph";
 import { ACTION_STYLE } from "@/lib/monitor/theme";
 import { Label } from "../Label";
@@ -215,13 +215,15 @@ function FitFrame({ bounds }: { bounds: Graph["bounds"] }) {
 export function FlowGraph({
   events,
   upstreams,
+  selectedId,
   onSelect,
 }: {
   events: ReadonlyMap<EventId, SentinelEvent>;
   upstreams: readonly Upstream[];
+  selectedId: EventId | null;
   onSelect: (id: EventId) => void;
 }) {
-  const graph = useMemo(() => layout(events.values(), upstreams), [events, upstreams]);
+  const graph = useMemo(() => layout(events.values(), upstreams, selectedId), [events, upstreams, selectedId]);
   const { nodes, edges } = useMemo(() => toFlow(graph, upstreams), [graph, upstreams]);
   const select = (id: EventId | null) => id && onSelect(id);
 
@@ -230,8 +232,8 @@ export function FlowGraph({
       <div className="flex items-baseline gap-3">
         <Label>Flow</Label>
         <span className="truncate text-[12px] text-taupe">
-          {graph.latest
-            ? "The lit path is the latest turn. Select a node or edge for its event."
+          {graph.shown
+            ? `The lit path is the ${graph.shown.id === selectedId ? "selected" : "latest"} turn, ${clock(graph.shown.created_at)}. Select a node or edge for its event.`
             : "Waiting for traffic."}
         </span>
         <span className="ml-auto flex shrink-0 gap-1">

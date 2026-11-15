@@ -12,7 +12,7 @@ It is a proxy between an AI agent and the models the agent calls. SENTINEL reads
 - `HOLD` pauses a tool call until a human approves or denies it on the Monitor. After 60 seconds, a held call becomes a block.
 - `BLOCK` refuses and returns `[SENTINEL] Request blocked: <reason>` to the agent.
 
-To use SENTINEL, an agent changes one line. Its Anthropic client's `base_url` points at `http://127.0.0.1:8787`.
+To use SENTINEL, a client changes its base URL and sends a gateway key as its API key. An Anthropic client points at `http://127.0.0.1:8787`. An OpenAI client, such as Open WebUI or any OpenAI SDK, points at `http://127.0.0.1:8787/v1`. Both doors run the same detection, policy, vault, and Monitor events. [Connect an agent or a chat app](#connect-an-agent-or-a-chat-app) has the steps.
 
 The Monitor is the web app's `/monitor` page at `http://127.0.0.1:3000/monitor`. It reaches SENTINEL through the `/engine/*` rewrite in `fragmos/next.config.ts`. SENTINEL itself serves only the API on port 8787.
 
@@ -72,6 +72,46 @@ SENTINEL_LOCAL_MODEL=qwen2.5:7b
 ```
 
 `SENTINEL_CLOUD_MODEL` overrides the cloud model, which defaults to `deepseek-v4.1-flash`. `SENTINEL_LOCAL_API_KEY_ENV` names the variable that holds the local model's key, which defaults to `OPENCODE_API_KEY`.
+
+## Connect an agent or a chat app
+
+Every call to `/v1/messages`, `/v1/chat/completions`, or `/v1/models` needs a gateway key. A missing, wrong, or revoked key gets 401. Create a key in the dashboard, or from `engine/`:
+
+```sh
+.venv/bin/python -m sentinel keys create my-app
+```
+
+The command prints the key, `fk_` and 40 more characters, and nothing else. SENTINEL stores only its SHA-256, so the key is shown once. `make up` mints a key named `demo` into `.run/demo.key` when that file is missing or the engine rejects it, and `demo/agent.py` sends it.
+
+The key's name is the event's `client` field, so the Monitor can show which app sent each turn. The vault is kept per key name and session, so one app's `[PERSON_1]` never turns into another app's real name.
+
+An Anthropic client sends the key as its API key:
+
+```python
+anthropic.Anthropic(base_url="http://127.0.0.1:8787", api_key=key)
+```
+
+An OpenAI client does the same against `/v1`:
+
+```python
+openai.OpenAI(base_url="http://127.0.0.1:8787/v1", api_key=key)
+```
+
+In Open WebUI, add an OpenAI API connection under **Admin Settings > Connections** with the URL `http://127.0.0.1:8787/v1` and the key. `/v1/models` lists `cloud` and `local`. The `model` field picks one of them. Any other model name routes the way the Anthropic door does, to the `x-sentinel-upstream` header or to `cloud`.
+
+The OpenAI door handles text chat only for now.
+
+- `system` and `developer` messages become the system prompt.
+- `max_completion_tokens` or `max_tokens` caps the reply, 4096 by default. `temperature`, `top_p`, and other sampling knobs are dropped, as on `/v1/messages`, because the Anthropic SDK SENTINEL calls upstream has no field for them.
+- Images, audio, files, `tools`, and tool calls get 400.
+- With `"stream": true`, the reply comes as server-sent events. A role chunk comes first, then the whole answer as one chunk, a chunk with `finish_reason`, and `data: [DONE]`.
+- A blocked or denied turn answers with a normal assistant message, `[SENTINEL] Request blocked: <reason>`, so the chat shows it. A held turn waits for the Monitor's approve or deny, up to 60 seconds, before it answers.
+
+`GET /api/gateway` returns both base URLs and the model list for the dashboard. The base URLs come from `SENTINEL_PUBLIC_URL`, `http://127.0.0.1:8787` by default. That value is only shown. It does not change which `Host` SENTINEL accepts.
+
+The endpoint is loopback only. SENTINEL binds `127.0.0.1` and accepts only a loopback `Host`, so a client must run on the same machine. The key, event, and approval APIs have no key of their own and rely on that, together with the `Origin` check. Reaching SENTINEL from another machine or a container needs a tunnel and an auth layer in front of every route, which is out of scope.
+
+`SENTINEL_PORT` moves the engine off port 8787, and the default `SENTINEL_PUBLIC_URL` follows it. With `make`, pass it as `make up SENTINEL_PORT=9000`, so the health probe and the demo key use the same port. `demo/agent.py` and `make check` still call 8787. `SENTINEL_DB` moves its database, for the server and for `keys create`.
 
 ## Give the three-minute demo
 
@@ -163,7 +203,13 @@ Detection, policy, the vault, and the egress check live in `sentinel/core/`. Tha
 
 | Endpoint | Returns |
 |---|---|
-| `POST /v1/messages` | The Anthropic Messages API, non-streaming. Sessions come from the `x-sentinel-session` header. The `x-sentinel-upstream` header picks a registered upstream, `cloud` by default. |
+| `POST /v1/messages` | The Anthropic Messages API, non-streaming. Needs a gateway key. Sessions come from the `x-sentinel-session` header. The `x-sentinel-upstream` header picks a registered upstream, `cloud` by default. |
+| `POST /v1/chat/completions` | The OpenAI Chat Completions API for text, streaming or not. Needs a gateway key. `model` picks an upstream; the session and upstream headers work as on `/v1/messages`. |
+| `GET /v1/models` | The upstreams a caller can pick, in OpenAI's list shape. Needs a gateway key. |
+| `GET /api/gateway` | `openai_base_url`, `anthropic_base_url`, and `models`, for the dashboard. |
+| `GET /api/keys` | Gateway keys: `id`, `name`, `prefix`, `created_at`, `last_used_at`. Never the key. |
+| `POST /api/keys` | Creates a key from `{"name": "..."}` and returns 201 with the plain `key`, the only time it is shown. |
+| `DELETE /api/keys/{id}` | Revokes a key at once. Returns 204, or 404 for an unknown id. |
 | `GET /api/events?limit=200` | The latest events, one per turn. `&session=<id>` keeps one session's events. |
 | `GET /api/stats` | Counts by action, entity type, and destination. |
 | `GET /api/approvals` | Approvals, pending ones first. |
@@ -173,9 +219,9 @@ Detection, policy, the vault, and the egress check live in `sentinel/core/`. Tha
 | `GET /health` | Whether cloud credentials are set, whether the local upstream answers, and the rule count. |
 | `WS /ws` | Each new event and approval as it happens. |
 
-The Monitor calls its endpoints under `http://127.0.0.1:3000/engine/`, for example `/engine/api/events`. The web app forwards only `/api/events`, `/api/stats`, `/api/upstreams`, `/api/approvals` and `/ws`.
+The Monitor and Connect pages call their endpoints under `http://127.0.0.1:3000/engine/`, for example `/engine/api/events`. The web app forwards only `/api/events`, `/api/stats`, `/api/upstreams`, `/api/approvals`, `/api/gateway`, `/api/keys` and `/ws`.
 
-SENTINEL accepts only a loopback `Host` header (`127.0.0.1` or `localhost`), so a DNS-rebound name gets 400. A browser `Origin` that is not on `SENTINEL_ALLOWED_ORIGINS` gets 403 on `/ws`, `POST /api/approvals/{id}`, and `POST /v1/messages`. The default list is `http://127.0.0.1:3000,http://localhost:3000`. Agents and curl send no `Origin`, so they are not affected. An approval also needs `Content-Type: application/json`, or it gets 415.
+SENTINEL accepts only a loopback `Host` header (`127.0.0.1` or `localhost`), so a DNS-rebound name gets 400. A browser `Origin` that is not on `SENTINEL_ALLOWED_ORIGINS` gets 403 on `/ws`, `POST /api/approvals/{id}`, every `/api/keys` route, `POST /v1/messages`, and `POST /v1/chat/completions`. The default list is `http://127.0.0.1:3000,http://localhost:3000`. Agents, chat backends, and curl send no `Origin`, so they are not affected. An approval or a new key also needs `Content-Type: application/json`, or it gets 415.
 
 ## Known limits
 

@@ -1,7 +1,8 @@
 PY := .venv/bin/python
 RUN := .run
+SENTINEL_PORT ?= 8787
 
-.PHONY: setup data up down check test demo env venv
+.PHONY: setup data up down check test demo demo-key env venv
 
 setup:
 	test -x $(PY) || ~/.local/bin/python3.11 -m venv .venv
@@ -25,14 +26,19 @@ include run.mk
 
 up: venv env
 	@mkdir -p $(RUN)
-	@$(call start,proxy,8787,$(PY) -m sentinel)
+	@$(call start,proxy,$(SENTINEL_PORT),env SENTINEL_PORT=$(SENTINEL_PORT) $(PY) -m sentinel)
 	@$(call start,site,8788,$(PY) demo/site_server.py)
 	@$(call start,stub,8789,$(PY) demo/sim_upstream.py)
-	@for url in http://127.0.0.1:8787/health http://127.0.0.1:8788/ http://127.0.0.1:8789/health; do \
+	@for url in http://127.0.0.1:$(SENTINEL_PORT)/health http://127.0.0.1:8788/ http://127.0.0.1:8789/health; do \
 		for i in $$(seq 120); do curl -sf -o /dev/null $$url && break; sleep 0.5; done; \
 		curl -sf -o /dev/null $$url || { echo "$$url did not come up; see $(RUN)/*.log"; exit 1; }; \
 	done
+	@$(MAKE) --no-print-directory demo-key
 	@echo "stack is up (logs in $(RUN)/)"
+
+demo-key:
+	@curl -sf -o /dev/null -H "x-api-key: $$(cat $(RUN)/demo.key 2>/dev/null)" http://127.0.0.1:$(SENTINEL_PORT)/v1/models \
+		|| { (umask 077; rm -f $(RUN)/demo.key && $(PY) -m sentinel keys create demo >$(RUN)/demo.key) && echo "minted gateway key demo into $(RUN)/demo.key"; }
 
 down:
 	@$(call stop,proxy site stub)
@@ -45,7 +51,7 @@ test: venv
 
 demo: data up
 	@echo
-	@echo "events     http://127.0.0.1:8787/api/events"
+	@echo "events     http://127.0.0.1:$(SENTINEL_PORT)/api/events"
 	@echo "monitor    make demo from the repository root serves it at http://127.0.0.1:3000/monitor"
 	@echo
 	@echo "scenarios:"

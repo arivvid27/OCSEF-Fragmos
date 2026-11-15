@@ -20,7 +20,7 @@ PRESETS = dict(re.findall(r'id: "(\w+)",\s+label: "[^"]+",\s+text: `([^`]*)`', S
 def findings(presidio):
     def of(preset):
         request = wire.parse_request({"model": "x", "max_tokens": 10, "messages": [user(text(PRESETS[preset]))]}, {},
-                                     frozenset(UPSTREAMS))
+                                     frozenset(UPSTREAMS), client="test")
         return detect(request, presidio, Vault(), POLICY.tiers).findings
     return of
 

@@ -90,7 +90,7 @@ class Ports:
 
 def run_body(body, detector, reply=TEXT_REPLY, headers=None, vault=None, **ports_kw):
     ports = Ports(reply, **ports_kw)
-    inbound = wire.parse_request({"model": "x", "max_tokens": 100, **body}, headers or {}, frozenset(UPSTREAMS))
+    inbound = wire.parse_request({"model": "x", "max_tokens": 100, **body}, headers or {}, frozenset(UPSTREAMS), client="test")
     ctx = TurnContext(UPSTREAMS, ports, POLICY, detector, vault or Vault())
     return wire.reply_to_json(asyncio.run(run_turn(inbound, ctx))), ports
 
@@ -275,7 +275,7 @@ def test_only_placeholders_this_vault_issued_are_ignored():
     vault = Vault()
     vault.token_for("PERSON", "Jeff Serrano")
     conversation = wire.parse_request({"model": "x", "max_tokens": 10, "messages": [user(text(
-        "[PERSON_1] met [PERSON_2]"))]}, {}, frozenset(UPSTREAMS)).conversation
+        "[PERSON_1] met [PERSON_2]"))]}, {}, frozenset(UPSTREAMS), client="test").conversation
     found = detect(conversation, ReadsBracketsAsNames(), vault, POLICY.tiers).findings
     assert [f.value for f in found] == ["[PERSON_2]"]
 
@@ -648,7 +648,7 @@ def test_approval_posted_after_expiry_reaches_agent_blocked(presidio):
         reply = model_reply(tool_use("send_email", to=DR_LEE, subject="s", body="Jeff Serrano was seen today."))
         ports = Ports(reply, desk=desk)
         inbound = wire.parse_request({"model": "x", "max_tokens": 100, "messages": [user(text("Email it."))]}, {},
-                                     frozenset(UPSTREAMS))
+                                     frozenset(UPSTREAMS), client="test")
         task = asyncio.create_task(run_turn(inbound, TurnContext(UPSTREAMS, ports, POLICY, presidio, Vault())))
         while not desk.list():
             await asyncio.sleep(0)

@@ -21,6 +21,7 @@ import anthropic
 DEMO = Path(__file__).resolve().parent
 DATA = DEMO / "data"
 OUTBOX = DEMO / "outbox.jsonl"
+KEY_FILE = DEMO.parent / ".run" / "demo.key"  # make up mints it
 SITE = "http://127.0.0.1:8788"
 MAX_STEPS = 8
 SYSTEM = ("You are a workspace assistant. Carry out the user's request with your tools without asking for "
@@ -129,7 +130,9 @@ def main() -> None:
     headers = {"x-sentinel-session": session}
     if args.vulnerable:
         headers["x-sentinel-upstream"] = "attacker-sim"
-    client = anthropic.Anthropic(base_url="http://127.0.0.1:8787", api_key="ignored-by-sentinel",
+    if not KEY_FILE.is_file():
+        raise SystemExit(f"no gateway key at {KEY_FILE}; start the stack with make up")
+    client = anthropic.Anthropic(base_url="http://127.0.0.1:8787", api_key=KEY_FILE.read_text().strip(),
                                  default_headers=headers, max_retries=0, timeout=90)
     print(f"{DIM}session {session}{RESET}")
     history: list = []
