@@ -19,6 +19,7 @@ const ENTITY_META = {
   UK_NINO: like("NATIONAL_INSURANCE"),
   DATE_OF_BIRTH: like("DATE_OF_BIRTH"),
   PROJECT_CODENAME: like("PROJECT"),
+  ORGANIZATION: like("INSTITUTION"),
   HEALTH: {
     label: "Health Information",
     regulation: "HIPAA Privacy Rule (45 CFR § 160.103, PHI) · GDPR Art. 9",
