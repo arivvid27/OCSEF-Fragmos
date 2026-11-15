@@ -3,14 +3,13 @@ export interface View {
   source(start: number, end: number): [number, number];
 }
 
-const NON_ASCII = /[\u0080-\uFFFF]/;
-const INVISIBLE = /\p{Cf}/u;
+const NEEDS_FOLDING = /[^\t\n\r\x20-\x7E]/;
+const INVISIBLE = /\p{Cf}|(?!\s)\p{Cc}/u;
 const DASH = /\p{Pd}|\u2212/u;
 const SPACE = /\p{Zs}|\t/u;
 const SPACED_OUT = /(?<!\S)\S(?: \S){5,}/g;
 const SSN_GROUPS = /(?<!\d)(\d{3})[ ._-](\d{2})[ ._-](\d{4})(?!\d)/g;
 const BASE64_RUN = /[A-Za-z0-9+/_-]{12,}={0,2}/g;
-const PRINTABLE = /^(?: |[^\p{C}\p{Z}])*$/u;
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 
 export function plain(text: string): View {
@@ -26,7 +25,7 @@ function pick(view: View, keep: number[]): View {
 }
 
 function fold(text: string): View {
-  if (!NON_ASCII.test(text)) {
+  if (!NEEDS_FOLDING.test(text)) {
     return plain(text.replace(/\t/g, " "));
   }
   let out = "";
@@ -110,12 +109,14 @@ export function decoded(text: string): View[] {
       continue;
     }
     const decodedText = decodeBase64(body);
-    if (decodedText === null || decodedText.trim() === "" || !PRINTABLE.test(decodedText.replace(/[\t\n\r]/g, ""))) {
+    if (decodedText === null || decodedText.trim() === "") {
       continue;
     }
     const start = m.index;
     const end = start + m[0].length;
-    views.push({ text: normalized(decodedText).text, source: () => [start, end] });
+    for (const reading of readings(decodedText)) {
+      views.push({ text: reading.text, source: () => [start, end] });
+    }
   }
   return views;
 }

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { containsResidualPII, detectSensitive } from "./detect";
 import { disabledCategories } from "./policies";
+import { STRUCTURED_PATTERNS } from "./patterns";
+import { PRESETS } from "./presets";
 import { DISGUISED_SSNS, KEY, SSN, b64 } from "./test-fixtures";
 
 function found(text: string): string[] {
@@ -30,6 +32,53 @@ describe("detectSensitive", () => {
       expect(found(`Deploy key: ${form}`)).toEqual(["API_KEY:" + form]);
     });
   }
+
+  it("finds a value in base64 that decodes with a control character", () => {
+    expect(found("SSN OTEyLTM0LTU2NzgA")).toEqual(["SSN:OTEyLTM0LTU2NzgA"]);
+    const inside = b64("912-34\u0000-5678");
+    expect(found(`SSN ${inside}`)).toEqual(["SSN:" + inside]);
+  });
+
+  it("finds a value in base64 of UTF-16 text", () => {
+    const wide = Buffer.from("SSN 912-34-5678", "utf16le").toString("base64");
+    expect(found(`run ${wide}`)).toEqual(["SSN:" + wide]);
+  });
+
+  it("finds a key in base64 that a control character separates from a word", () => {
+    const framed = b64("user\u0000" + KEY + "\u0000");
+    expect(found(`blob ${framed}`)).toEqual(["API_KEY:" + framed]);
+  });
+
+  it("finds a value split by a control character", () => {
+    expect(found("SSN 531-62\u0001-4408 on file")).toEqual(["SSN:531-62\u0001-4408"]);
+  });
+
+  it("reads nothing out of base64 that is not hiding a value", () => {
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let state = 20261115;
+    function next(below: number): number {
+      state = (state * 1664525 + 1013904223) >>> 0;
+      return state % below;
+    }
+    const runs: string[] = [];
+    for (let i = 0; i < 2000; i++) {
+      let run = "";
+      for (let length = 12 + next(29); run.length < length; ) {
+        run += alphabet[next(alphabet.length)];
+      }
+      runs.push(run);
+    }
+    for (const p of PRESETS) {
+      runs.push(...p.text.split(/\s+/));
+    }
+    runs.push(..."internationalization organization-wide src/components/monitor/EventDetail node_modules/next/dist".split(" "));
+
+    for (const run of runs) {
+      const direct = STRUCTURED_PATTERNS.filter((p) => run.match(p.re)).map((p) => p.category);
+      const all = detectSensitive(run).map((d) => d.category).filter((c) => c !== "HIGH_ENTROPY_SECRET");
+      expect(direct, run).toEqual(expect.arrayContaining(all));
+    }
+  });
 
   it("does not glue separate words into one value", () => {
     expect(found("Ask info @ example.org today, or see https://docs.example.org :8080 @ noon.")).toEqual([]);
@@ -109,7 +158,7 @@ describe("containsResidualPII", () => {
   });
 
   it("stays fast on hostile input that forces every reading", () => {
-    for (const seed of ["a", "password.", "a.", "a-", "QUJD", "a b "]) {
+    for (const seed of ["a", "password.", "a.", "a-", "QUJD", "a b ", "\u0001a"]) {
       const text = "_\u200B" + seed.repeat(Math.floor(20_000 / seed.length));
       const started = performance.now();
       containsResidualPII(text);
