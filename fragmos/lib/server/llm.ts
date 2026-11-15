@@ -33,47 +33,46 @@ export function statusOf(err: unknown): number | undefined {
 }
 
 export function textStream(body: ReadableStream<Uint8Array>, pick: (data: string) => string) {
+  const reader = body.getReader();
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
 
+  function textOf(line: string): string {
+    if (!line.startsWith("data:")) {
+      return "";
+    }
+    const data = line.slice(5).trim();
+    if (data === "" || data === "[DONE]") {
+      return "";
+    }
+    try {
+      return pick(data);
+    } catch (err) {
+      if (err instanceof UpstreamError) {
+        throw err;
+      }
+      return "";
+    }
+  }
+
   return new ReadableStream<Uint8Array>({
     async start(controller) {
-      const reader = body.getReader();
       let buffer = "";
       try {
         for (;;) {
           const { done, value } = await reader.read();
-          if (done) {
-            break;
-          }
-          buffer += decoder.decode(value, { stream: true });
+          buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = done ? "" : lines.pop() || "";
 
-          let newline = buffer.indexOf("\n");
-          while (newline !== -1) {
-            const line = buffer.slice(0, newline).trim();
-            buffer = buffer.slice(newline + 1);
-            newline = buffer.indexOf("\n");
-
-            if (!line.startsWith("data:")) {
-              continue;
-            }
-            const data = line.slice(5).trim();
-            if (data === "" || data === "[DONE]") {
-              continue;
-            }
-
-            let text = "";
-            try {
-              text = pick(data);
-            } catch (err) {
-              if (err instanceof UpstreamError) {
-                throw err;
-              }
-              continue;
-            }
+          for (const line of lines) {
+            const text = textOf(line.trim());
             if (text) {
               controller.enqueue(encoder.encode(text));
             }
+          }
+          if (done) {
+            break;
           }
         }
         controller.close();
@@ -81,8 +80,8 @@ export function textStream(body: ReadableStream<Uint8Array>, pick: (data: string
         controller.error(err);
       }
     },
-    cancel() {
-      return body.cancel();
+    cancel(reason) {
+      return reader.cancel(reason);
     },
   });
 }
