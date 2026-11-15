@@ -38,9 +38,9 @@ export const POLICIES: Policy[] = [
 
 export const ALL_POLICY_IDS: PolicyId[] = POLICIES.map((p) => p.id);
 
-export const OPTIONAL_CATEGORIES: ReadonlySet<string> = new Set(
-  POLICIES.flatMap((p) => p.categories),
-);
+export function isPolicyId(value: unknown): value is PolicyId {
+  return ALL_POLICY_IDS.some((id) => id === value);
+}
 
 export function disabledCategories(active: PolicyId[]): ReadonlySet<Category> {
   const off = new Set<Category>();

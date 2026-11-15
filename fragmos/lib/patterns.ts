@@ -35,6 +35,7 @@ export interface StructuredPattern {
   category: StructuredCategory;
   re: RegExp;
   validate?: (match: string) => boolean;
+  acrossWhitespace?: true;
 }
 
 export function passesLuhn(candidate: string): boolean {
@@ -59,7 +60,7 @@ export function passesLuhn(candidate: string): boolean {
 }
 
 export const STRUCTURED_PATTERNS: StructuredPattern[] = [
-  { category: "EMAIL", re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g },
+  { category: "EMAIL", re: /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g },
   { category: "SSN", re: /(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)/g },
   {
     category: "PHONE",
@@ -104,10 +105,12 @@ export const STRUCTURED_PATTERNS: StructuredPattern[] = [
   {
     category: "JWT",
     re: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
+    acrossWhitespace: true,
   },
   {
     category: "AWS_ACCESS_KEY",
     re: /\b(?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA)[A-Z0-9]{16}\b/g,
+    acrossWhitespace: true,
   },
   {
     category: "AWS_SECRET_KEY",
@@ -116,14 +119,15 @@ export const STRUCTURED_PATTERNS: StructuredPattern[] = [
   {
     category: "GITHUB_TOKEN",
     re: /\b(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{50,255})\b/g,
+    acrossWhitespace: true,
   },
-  { category: "SLACK_TOKEN", re: /\bxox[abprs]-[A-Za-z0-9-]{10,72}\b/g },
-  { category: "STRIPE_KEY", re: /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g },
-  { category: "GOOGLE_API_KEY", re: /\b(?:AIza[0-9A-Za-z_-]{35}|AQ\.[0-9A-Za-z_-]{30,})/g },
-  { category: "API_KEY", re: /\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}\b/g },
-  { category: "SENDGRID_KEY", re: /\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b/g },
-  { category: "TWILIO_KEY", re: /\b(?:AC|SK)[0-9a-f]{32}\b/g },
-  { category: "NPM_TOKEN", re: /\bnpm_[A-Za-z0-9]{36}\b/g },
+  { category: "SLACK_TOKEN", re: /\bxox[abprs]-[A-Za-z0-9-]{10,72}\b/g, acrossWhitespace: true },
+  { category: "STRIPE_KEY", re: /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g, acrossWhitespace: true },
+  { category: "GOOGLE_API_KEY", re: /\b(?:AIza[0-9A-Za-z_-]{35}|AQ\.[0-9A-Za-z_-]{30,})/g, acrossWhitespace: true },
+  { category: "API_KEY", re: /\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}\b/g, acrossWhitespace: true },
+  { category: "SENDGRID_KEY", re: /\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b/g, acrossWhitespace: true },
+  { category: "TWILIO_KEY", re: /\b(?:AC|SK)[0-9a-f]{32}\b/g, acrossWhitespace: true },
+  { category: "NPM_TOKEN", re: /\bnpm_[A-Za-z0-9]{36}\b/g, acrossWhitespace: true },
   {
     category: "PRIVATE_KEY",
     re: /-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----/g,
@@ -132,29 +136,14 @@ export const STRUCTURED_PATTERNS: StructuredPattern[] = [
   { category: "BASIC_AUTH", re: /\bBasic\s+[A-Za-z0-9+\/]{16,}={0,2}/g },
   {
     category: "URL_CREDENTIALS",
-    re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@\/]+:[^\s@\/]+@[^\s\/]+/gi,
+    re: /\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s:@\/]+:[^\s@\/]+@[^\s\/]+/gi,
   },
   {
     category: "SECRET_ASSIGNMENT",
-    re: /\b[A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|private[_-]?key)[A-Za-z0-9_.-]*["']?\s*[:=]\s*["']?[^\s"',;]{6,}/gi,
+    re: /(?:\b[A-Za-z0-9_.-]{0,64})?(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|private[_-]?key)[A-Za-z0-9_.-]{0,64}["']?\s*[:=]\s*["']?[^\s"',;]{6,}/gi,
   },
   {
     category: "PROJECT",
     re: /\b(?:Project|Operation|Initiative|Codename|Client|Account|Deal)\s+(?!(?:Number|Manager|Services|Team|Executive|Name|Information|Details|Summary|Representative|Settings)\b)[A-Z][A-Za-z0-9_-]{1,24}(?:\s+[A-Z][A-Za-z0-9_-]{1,24})?\b/g,
   },
 ];
-
-export function containsStructuredPII(text: string, skip?: ReadonlySet<string>): boolean {
-  for (let i = 0; i < STRUCTURED_PATTERNS.length; i++) {
-    const pattern = STRUCTURED_PATTERNS[i];
-    if (skip && skip.has(pattern.category)) {
-      continue;
-    }
-    for (const m of text.matchAll(pattern.re)) {
-      if (!pattern.validate || pattern.validate(m[0])) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
