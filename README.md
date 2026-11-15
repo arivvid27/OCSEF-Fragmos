@@ -21,13 +21,13 @@ You need the following:
 
 Run every command from the repository root.
 
-1. Install the Python packages, the spaCy model `en_core_web_lg`, and the web app's packages:
+1. Install the Python packages, the spaCy model `en_core_web_lg`, the web app's packages, and Open WebUI:
 
 	```sh
 	make setup
 	```
 
-	It finishes with npm's report of the packages it added.
+	It finishes with pip's report on Open WebUI. Open WebUI adds about 2.3 GB in `webui/.venv`. Its install took 1 min 39 s on a machine that already had part of the download cached.
 
 2. Create the engine's env file and set `OPENCODE_API_KEY` in it:
 
@@ -49,11 +49,12 @@ Run every command from the repository root.
 	make demo
 	```
 
-	You should see `started proxy on :8787`, `started site on :8788`, `started stub on :8789`, and `stack is up`, then the four scenario commands. The web app builds next, and `make demo` waits up to two minutes for it to answer. The output ends with these lines:
+	You should see `started proxy on :8787`, `started site on :8788`, `started stub on :8789`, and `stack is up`, then the four scenario commands. The web app builds next, and `make demo` waits up to two minutes for it to answer. Open WebUI starts after the web app, with the same two-minute wait. Its first start after `make setup` took about 50 s, and later starts took about 10 s. The output ends with these lines:
 
 	```
 	workspace  http://127.0.0.1:3000/
 	monitor    http://127.0.0.1:3000/monitor
+	chat       http://127.0.0.1:8080/
 	run the scenarios above from engine/
 	```
 
@@ -79,11 +80,31 @@ Run every command from the repository root.
 	make down
 	```
 
-	You should see `stopped web`, `stopped proxy`, `stopped site`, and `stopped stub`.
+	You should see `stopped web`, `stopped webui`, `stopped proxy`, `stopped site`, and `stopped stub`.
 
-Each process writes its log to `engine/.run/`, for example `engine/.run/web.log` and `engine/.run/proxy.log`. If a port is busy, `make demo` stops with `port <n> is held by another process`.
+Each process writes its log to `engine/.run/`, for example `engine/.run/web.log`, `engine/.run/webui.log`, and `engine/.run/proxy.log`. If a port is busy, `make demo` stops with `port <n> is held by another process`.
 
 To develop the web app with hot reload, see [`fragmos/README.md`](fragmos/README.md). To run the engine alone or switch it to a real local model, see [`engine/README.md`](engine/README.md).
+
+## Use it like ChatGPT
+
+Open WebUI is a chat app that looks and works like ChatGPT. `make demo` starts it on port 8080 with the Fragmos engine as its only model provider. Every prompt goes through the same policy as agent traffic, and every turn shows up in the Monitor. To start only the chat app while the engine is already up, run `make webui`.
+
+1. Open `http://127.0.0.1:8080/`. There is no login.
+2. Pick a model at the top of the chat. `cloud` is the default, and `local` is listed too. To change the default, start with `FRAGMOS_CHAT_MODEL`, for example `make demo FRAGMOS_CHAT_MODEL=local`.
+3. Send a prompt as you would in ChatGPT. The answer arrives in one piece, because the engine checks the whole reply before it sends any of it.
+
+How the chat app is set up:
+
+- `make webui` mints a gateway key named `openwebui` into `engine/.run/openwebui.key` when that file is missing or the engine rejects it. The Monitor shows the chat's turns with the client `openwebui`.
+- Each chat is one engine session. Open WebUI sends the chat id in the `x-sentinel-session` header, so the engine keeps one set of placeholders per chat.
+- `webui/serve.sh` sets every option through env vars. A change under **Admin Settings** is lost at the next start, so edit the script instead.
+- Open WebUI makes no model calls of its own. Title, tag, follow-up, autocomplete, and search-query generation are off, so one prompt is one turn in the Monitor. New chats keep the title **New Chat**.
+- It runs offline. It does not check for updates, download from Hugging Face, or load an embedding model, so documents attached to a chat are not read.
+- A turn that the engine blocks comes back as a chat message that starts with `[SENTINEL] Request blocked:`.
+- Chats are stored in `webui/data/`, and the log is `engine/.run/webui.log`.
+
+Any other OpenAI-compatible chat client works the same way. [`engine/README.md`](engine/README.md#connect-an-agent-or-a-chat-app) explains how to connect one.
 
 ## Give the three-minute demo
 
@@ -135,6 +156,36 @@ No real model followed the injection in 45 runs across seven models. `--vulnerab
 
 **2:55 to 3:00. Close.** Say: "Placeholders out, real values back, for people and for agents."
 
+## Give the chat demo
+
+This demo shows a ChatGPT user switching to Fragmos. Marlowe Fenwick is a made-up person, and Ada Lovelace is the famous name.
+
+1. Run `make demo`. If the `cloud` model answers with an error, run `make down`, then `make demo FRAGMOS_CHAT_MODEL=local`.
+2. Open the chat at `http://127.0.0.1:8080/` in one tab and the Monitor at `http://127.0.0.1:3000/monitor` in another.
+3. In the chat, send this prompt:
+
+	```
+	Write a two-line thank-you note to Marlowe Fenwick for lending me a biography of Ada Lovelace.
+	```
+
+	The answer arrives with both names in place, like an answer from ChatGPT.
+4. In the Monitor, click the new turn. Its client is `openwebui`, and its action is **REDACT**. Compare what the chat sent with what the model saw:
+
+	```
+	Write a two-line thank-you note to [PERSON_1] for lending me a biography of [PERSON_2].
+	```
+
+	The engine masks Ada Lovelace too, because spaCy tags every name as `PERSON`, famous or not. The graph shows the turn's path from the chat app through SENTINEL to the model.
+5. In the chat, click **New Chat** and send this prompt:
+
+	```
+	Marlowe Fenwick was diagnosed with asthma last spring. Suggest three questions to ask at the next checkup.
+	```
+
+6. In the Monitor, click the new turn. Its action is **REROUTE**, by the rule `restricted-stays-local`. Asthma is a health term, and health data is tier 3, so the turn goes to the local model even when the chat asks for `cloud`.
+
+A chat cannot trigger a hold. Holds apply to tool calls, and Open WebUI sends none.
+
 ## How the pieces connect
 
 ```
@@ -171,11 +222,13 @@ Both halves stay on this machine. The web app binds `127.0.0.1`. The engine acce
 
 The root `Makefile` drives both halves. Each root target runs the matching target in `engine/Makefile` and adds the web app's part:
 
-- `make setup` adds `npm ci`.
-- `make demo` adds a production build and `next start` on port 3000.
-- `make down` adds stopping the web app.
+- `make setup` adds `npm ci` and the Open WebUI install into `webui/.venv`.
+- `make demo` adds a production build and `next start` on port 3000, then `make webui`.
+- `make down` adds stopping the web app and Open WebUI.
 - `make test` adds `npm test`.
 - `make check` adds nothing. It runs the engine's scenario check alone.
+
+`make webui` exists only at the root. It mints the `openwebui` gateway key and starts Open WebUI on port 8080.
 
 Both Makefiles start and stop processes with the pidfile macros in `engine/run.mk`.
 
