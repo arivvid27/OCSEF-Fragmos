@@ -9,6 +9,20 @@ Both doors work the same way. Real values go out as placeholders, and the real v
 
 All demo data is fake.
 
+### Screenshots
+
+The workspace masks a student note in the browser. The Wire panel shows the only text that leaves, and the Vault keeps the real values on the device.
+
+![Workspace masking an IEP student note](docs/screenshots/workspace.png)
+
+The Monitor shows each engine decision live. Select a turn to light its path through the flow graph and see what the model received.
+
+![Monitor with the feed, model cards, and flow graph](docs/screenshots/monitor.png)
+
+The Connect page gives an agent its base URL and a gateway key.
+
+![Connect page with endpoints and API keys](docs/screenshots/connect.png)
+
 ## Run it
 
 You need the following:
