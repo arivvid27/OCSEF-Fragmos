@@ -55,7 +55,12 @@ export function Monitor() {
               <Feed events={events} selectedId={selectedId} onSelect={setSelectedId} />
             </div>
             <div className="flex min-h-0 flex-col">
-              <FlowGraph events={state.events} upstreams={state.upstreams} onSelect={setSelectedId} />
+              <FlowGraph
+                events={state.events}
+                upstreams={state.upstreams}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+              />
               <hr className="border-line" />
               <EventDetail event={selected} />
             </div>

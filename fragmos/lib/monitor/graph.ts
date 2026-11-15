@@ -19,8 +19,8 @@ export interface Lit {
 export interface Graph {
   slots: Slot[];
   edges: { id: string; src: string; dst: string }[];
-  lit: ReadonlyMap<string, Lit>; // edge id -> what the latest turn did on it
-  latest: SentinelEvent | null;
+  lit: ReadonlyMap<string, Lit>; // edge id -> what the shown turn did on it
+  shown: SentinelEvent | null; // the selected turn, or the newest when nothing selected is present
   bounds: { x: number; y: number; width: number; height: number };
 }
 
@@ -56,7 +56,11 @@ function worse(a: Hop, b: Hop): Hop {
 }
 
 /** Positions depend only on the order nodes were first seen, so a new event adds nodes and never moves one. */
-export function layout(events: Iterable<SentinelEvent>, upstreams: readonly Upstream[]): Graph {
+export function layout(
+  events: Iterable<SentinelEvent>,
+  upstreams: readonly Upstream[],
+  selectedId: EventId | null = null,
+): Graph {
   const ordered = [...events].sort((a, b) => a.created_at - b.created_at);
   const seen = new Set<string>(ALWAYS_SHOWN);
   const edges = new Map<string, { id: string; src: string; dst: string }>();
@@ -104,21 +108,23 @@ export function layout(events: Iterable<SentinelEvent>, upstreams: readonly Upst
   for (const [t, i] of toolRow) slots.push(slot(t, "tool", COL.right, toolY0 + i * TOOL_PITCH));
   for (const [d, i] of domainRow) slots.push(slot(d, "domain", COL.domain, toolY0 + i * TOOL_PITCH));
 
-  const latest = ordered.reduce<SentinelEvent | null>((a, e) => (!a || e.updated_at >= a.updated_at ? e : a), null);
+  const shown =
+    ordered.find((e) => e.id === selectedId) ??
+    ordered.reduce<SentinelEvent | null>((a, e) => (!a || e.updated_at >= a.updated_at ? e : a), null);
   const lit = new Map<string, Lit>();
-  for (const h of latest?.hops ?? []) {
+  for (const h of shown?.hops ?? []) {
     const id = edgeId(h.src, h.dst);
     const prev = lit.get(id);
     const hop = prev ? worse(prev.hop, h) : h;
     const settled = hop.state === "active" ? "done" : hop.state;
-    lit.set(id, { hop, pulse: `${latest?.id}:${hop.action}:${settled}` });
+    lit.set(id, { hop, pulse: `${shown?.id}:${hop.action}:${settled}` });
   }
 
   return {
     slots,
     edges: [...edges.values()],
     lit,
-    latest,
+    shown,
     bounds: { x: COL.agent, y: 0, width: COL.domain + SIZE.domain.width, height },
   };
 }
