@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { fetchGateway, fetchKeys, type ApiKey, type CreatedKey, type Gateway } from "@/lib/connect/api";
+import {
+  EngineUnreachable,
+  fetchGateway,
+  fetchKeys,
+  type ApiKey,
+  type CreatedKey,
+  type Gateway,
+} from "@/lib/connect/api";
 import type { Link } from "@/lib/monitor/store";
 import { EngineDown } from "../EngineDown";
 import { Header } from "../Header";
@@ -11,17 +18,24 @@ import { CopyButton } from "./CopyButton";
 import { Keys } from "./Keys";
 import { Snippets } from "./Snippets";
 
+// `error` is set while the engine answers but a poll fails, such as an HTTP error or a body of the wrong shape.
 type Engine =
-  | { link: Extract<Link, "connecting"> }
+  | { link: Extract<Link, "connecting">; error: string | null }
   | { link: Extract<Link, "reconnecting"> }
-  | { link: Extract<Link, "live">; gateway: Gateway; keys: ApiKey[]; now: number };
+  | { link: Extract<Link, "live">; gateway: Gateway; keys: ApiKey[]; now: number; error: string | null };
 
 // Live polling keeps "last used" fresh while an agent works; the shorter delay finds a restarted engine quickly.
 const LIVE_POLL_MS = 5000;
 const DOWN_RETRY_MS = 1500;
 
+function failed(prev: Engine, e: unknown): Engine {
+  if (e instanceof EngineUnreachable) return { link: "reconnecting" };
+  const error = e instanceof Error ? e.message : String(e);
+  return prev.link === "live" ? { ...prev, error } : { link: "connecting", error };
+}
+
 function useEngine() {
-  const [engine, setEngine] = useState<Engine>({ link: "connecting" });
+  const [engine, setEngine] = useState<Engine>({ link: "connecting", error: null });
   // A poll that started before a create or revoke would put back the old list; bumping this drops it.
   const generation = useRef(0);
 
@@ -35,11 +49,11 @@ function useEngine() {
       try {
         const [gateway, keys] = await Promise.all([fetchGateway(), fetchKeys()]);
         if (!disposed && started === generation.current) {
-          setEngine({ link: "live", gateway, keys, now: Date.now() / 1000 });
+          setEngine({ link: "live", gateway, keys, now: Date.now() / 1000, error: null });
         }
-      } catch {
+      } catch (e) {
         delay = DOWN_RETRY_MS;
-        if (!disposed) setEngine({ link: "reconnecting" });
+        if (!disposed && started === generation.current) setEngine((prev) => failed(prev, e));
       }
       if (!disposed) timer = setTimeout(poll, delay);
     };
@@ -57,6 +71,15 @@ function useEngine() {
   };
 
   return [engine, editKeys] as const;
+}
+
+function EngineError({ error }: { error: string }) {
+  return (
+    <div role="alert" className="animate-fade rounded-xl bg-risk/60 px-4 py-3 text-[13px] text-terracotta">
+      The engine answered with an error. Retrying in the background.
+      <div className="mt-1 font-mono text-[12px]">{error}</div>
+    </div>
+  );
 }
 
 function Endpoint({ label, hint, url }: { label: string; hint: string; url: string }) {
@@ -106,7 +129,9 @@ export function Connect() {
       {engine.link === "reconnecting" ? (
         <EngineDown>Connect makes keys on the Sentinel engine, and it cannot reach it.</EngineDown>
       ) : engine.link === "connecting" ? (
-        <main className="flex-1" />
+        <main className="mx-auto w-full max-w-4xl flex-1 px-6 pt-10">
+          {engine.error && <EngineError error={engine.error} />}
+        </main>
       ) : (
         <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 pb-16 pt-10">
           <div className="animate-rise">
@@ -118,6 +143,7 @@ export function Connect() {
               reaches a model, and every turn shows up in Monitor.
             </p>
           </div>
+          {engine.error && <EngineError error={engine.error} />}
           <Endpoints gateway={engine.gateway} />
           <Keys
             keys={engine.keys}
@@ -129,7 +155,7 @@ export function Connect() {
             }}
             onDismissCreated={() => setCreated(null)}
             onRevoked={(key) => {
-              if (created?.id === key.id) setCreated(null);
+              setCreated((shown) => (shown?.id === key.id ? null : shown));
               editKeys((keys) => keys.filter((k) => k.id !== key.id));
             }}
           />
