@@ -1,7 +1,7 @@
 import { CATEGORY_META, type Category } from "./categories";
 import { findHighEntropySecrets } from "./entropy";
-import { STRUCTURED_PATTERNS, type StructuredPattern } from "./patterns";
-import { compact, decoded, readings, type View } from "./views";
+import { BROKEN_KEY_PATTERNS, STRUCTURED_PATTERNS, type StructuredPattern } from "./patterns";
+import { decoded, readings, type View } from "./views";
 
 export interface Detection {
   start: number;
@@ -45,7 +45,6 @@ function collect(view: View, pattern: StructuredPattern, into: Detection[]) {
 export function detectSensitive(text: string, disabled: ReadonlySet<Category> = new Set()): Detection[] {
   const asRead = readings(text);
   const views = asRead.concat(decoded(text));
-  const rejoined = compact(asRead[asRead.length - 1]);
 
   const direct: Detection[] = [];
   const acrossBreaks: Detection[] = [];
@@ -57,8 +56,10 @@ export function detectSensitive(text: string, disabled: ReadonlySet<Category> = 
     for (let v = 0; v < views.length; v++) {
       collect(views[v], pattern, direct);
     }
-    if (pattern.acrossWhitespace) {
-      collect(rejoined, pattern, acrossBreaks);
+  }
+  for (let p = 0; p < BROKEN_KEY_PATTERNS.length; p++) {
+    if (!disabled.has(BROKEN_KEY_PATTERNS[p].category)) {
+      collect(asRead[asRead.length - 1], BROKEN_KEY_PATTERNS[p], acrossBreaks);
     }
   }
 

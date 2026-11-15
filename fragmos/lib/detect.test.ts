@@ -26,12 +26,33 @@ describe("detectSensitive", () => {
     expect(found(`Deploy key (base64): ${b64(KEY)}`)).toEqual(["API_KEY:" + b64(KEY)]);
   });
 
-  for (const gap of [" ", "\n"]) {
+  for (const gap of [" ", "\n", " \t "]) {
     it(`finds a key broken by ${JSON.stringify(gap)}`, () => {
       const form = KEY.slice(0, 14) + gap + KEY.slice(14);
       expect(found(`Deploy key: ${form}`)).toEqual(["API_KEY:" + form]);
     });
   }
+
+  it("finds a broken key that follows a word", () => {
+    expect(found("the key is ASIAIOSFODNN7\nEXAMPLE")).toEqual(["AWS_ACCESS_KEY:ASIAIOSFODNN7\nEXAMPLE"]);
+  });
+
+  it("finds a broken key with words after it", () => {
+    expect(found("the key is ASIAIOSFODNN7\nEXAMPLE thanks")).toEqual(["AWS_ACCESS_KEY:ASIAIOSFODNN7\nEXAMPLE"]);
+  });
+
+  it("finds a key broken inside its prefix", () => {
+    expect(found("the key is AS IAIOSFODNN7EXAMPLE")).toEqual(["AWS_ACCESS_KEY:AS IAIOSFODNN7EXAMPLE"]);
+  });
+
+  it("finds a token wrapped where its parts begin", () => {
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.\neyJzdWIiOiIxMjM0NTY3ODkwIn0.\ndBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    expect(found(`the token is ${jwt}.`)).toEqual(["JWT:" + jwt]);
+  });
+
+  it("does not join a key shape to the letters of the next word", () => {
+    expect(found("the key is ASIAIOSFODNN7\nEXAMPLEthanks")).toEqual([]);
+  });
 
   it("finds a value in base64 that decodes with a control character", () => {
     expect(found("SSN OTEyLTM0LTU2NzgA")).toEqual(["SSN:OTEyLTM0LTU2NzgA"]);
@@ -158,7 +179,7 @@ describe("containsResidualPII", () => {
   });
 
   it("stays fast on hostile input that forces every reading", () => {
-    for (const seed of ["a", "password.", "a.", "a-", "QUJD", "a b ", "\u0001a"]) {
+    for (const seed of ["a", "password.", "a.", "a-", "QUJD", "a b ", "sk- ", "AKIA ", "eyJaaaaaaaa ", "\u0001a"]) {
       const text = "_\u200B" + seed.repeat(Math.floor(20_000 / seed.length));
       const started = performance.now();
       containsResidualPII(text);

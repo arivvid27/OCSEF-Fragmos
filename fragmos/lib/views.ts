@@ -82,16 +82,6 @@ export function readings(text: string): View[] {
   return reading.text === text ? [plain(text)] : [plain(text), reading];
 }
 
-export function compact(view: View): View {
-  const keep: number[] = [];
-  for (let i = 0; i < view.text.length; i++) {
-    if (!/\s/.test(view.text[i])) {
-      keep.push(i);
-    }
-  }
-  return pick(view, keep);
-}
-
 function decodeBase64(body: string): string | null {
   try {
     const binary = atob(body.replace(/-/g, "+").replace(/_/g, "/"));

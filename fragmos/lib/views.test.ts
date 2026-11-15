@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { compact, decoded, normalized, readings, type View } from "./views";
+import { decoded, normalized, readings, type View } from "./views";
 
 const SSN = "912-34-5678";
-const KEY = "sk-ant-api03-" + "Q7fakeKEYnotREAL0x9".repeat(3);
 
 function b64(s: string): string {
   return Buffer.from(s, "utf8").toString("base64");
@@ -91,16 +90,6 @@ describe("readings", () => {
       "SSN 912-34-5678",
     ]);
   });
-});
-
-describe("compact", () => {
-  for (const gap of [" ", "\n", " \t "]) {
-    it(`rejoins a key broken by ${JSON.stringify(gap)}`, () => {
-      const form = KEY.slice(0, 14) + gap + KEY.slice(14);
-      const text = `Deploy key: ${form}`;
-      expect(sourceOf(text, compact(normalized(text)), KEY)).toBe(form);
-    });
-  }
 });
 
 describe("decoded", () => {
