@@ -36,7 +36,7 @@ function UpstreamCard({ upstream, count }: { upstream: Upstream; count: number }
           ? "bg-risk/50 ring-risk-line/20"
           : cloud
             ? "bg-surface ring-line"
-            : "bg-[#f1eaf2]/60 ring-[#5a3d66]/15"
+            : "bg-local/60 ring-local-ink/15"
       }`}
     >
       <div className="min-w-0 flex-1">

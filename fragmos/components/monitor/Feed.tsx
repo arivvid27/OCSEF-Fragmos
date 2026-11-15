@@ -7,7 +7,7 @@ import { ActionChip, EntityPill } from "./ActionChip";
 const OUTCOME_STYLE: Record<EgressVerdict["outcome"], string> = {
   forwarded: "text-forest",
   blocked: "text-terracotta",
-  pending: "text-[#7a5a1f]",
+  pending: "text-hold-ink",
 };
 
 export function EgressLine({ verdict }: { verdict: EgressVerdict }) {

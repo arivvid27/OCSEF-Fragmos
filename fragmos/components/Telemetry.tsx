@@ -24,7 +24,7 @@ const FALL_MS = 1600;
 const PEAK_NORMALIZER = 0.76;
 const FADE_OUT_MS = 700;
 const OUT_COLOR = "#2c241e";
-const IN_COLOR = "#a9803a";
+const IN_COLOR = "var(--color-hold-line)";
 
 function formatBytes(n: number) {
   if (n < 1024) {
