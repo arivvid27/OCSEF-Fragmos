@@ -56,15 +56,23 @@ function KeyRow({ apiKey, now, onRevoked }: { apiKey: ApiKey; now: number; onRev
     <li className="animate-rise border-t border-line py-3 first:border-t-0">
       <div className={`${COLUMNS} items-center`}>
         <span className="truncate text-[13.5px] font-medium text-ink">{apiKey.name}</span>
-        <span className="truncate font-mono text-[12px] text-taupe">{apiKey.prefix}…</span>
-        <span className="text-[12px] text-taupe">{since(apiKey.created_at, now)}</span>
+        <span className="truncate font-mono text-[12px] text-taupe">
+          <span className="sr-only">Key </span>
+          {apiKey.prefix}…
+        </span>
+        <span className="text-[12px] text-taupe">
+          <span className="sr-only">Created </span>
+          {since(apiKey.created_at, now)}
+        </span>
         <span className={`text-[12px] ${apiKey.last_used_at === null ? "text-taupe/70" : "text-forest"}`}>
+          <span className="sr-only">Last used </span>
           {since(apiKey.last_used_at, now)}
         </span>
         {step === "idle" ? (
           <button
             type="button"
             onClick={() => setStep("confirm")}
+            aria-label={`Revoke key ${apiKey.name}`}
             className="justify-self-end text-[12px] text-taupe transition-colors duration-300 hover:text-terracotta"
           >
             Revoke
@@ -148,7 +156,7 @@ export function Keys({
           placeholder="Name it after the client, like openwebui"
           spellCheck={false}
           autoComplete="off"
-          maxLength={64}
+          maxLength={100}
           className="min-w-0 flex-1 rounded-lg border border-line bg-canvas px-3 py-2 text-[13.5px] text-ink outline-none transition-[border-color,box-shadow] duration-300 ease-ios placeholder:text-taupe/60 focus:border-forest/50 focus:shadow-[0_0_0_3px_rgba(45,90,39,0.1)]"
         />
         <button type="submit" disabled={!trimmed || busy} className={PRIMARY}>
@@ -171,7 +179,7 @@ export function Keys({
         <p className="mt-5 text-[13px] text-taupe">No keys yet. Create one to connect a client.</p>
       ) : (
         <div className="mt-5">
-          <div className={`${COLUMNS} pb-1.5 text-[11px] text-taupe`}>
+          <div aria-hidden className={`${COLUMNS} pb-1.5 text-[11px] text-taupe`}>
             <span>Name</span>
             <span>Key</span>
             <span>Created</span>
