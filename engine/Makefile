@@ -7,6 +7,8 @@ setup:
 	test -x $(PY) || ~/.local/bin/python3.11 -m venv .venv
 	$(PY) -m pip install -r requirements.txt
 	$(PY) -c "import en_core_web_lg" 2>/dev/null || $(PY) -m spacy download en_core_web_lg
+	$(PY) -c "from huggingface_hub import snapshot_download; from sentinel.presidio_detector import NAMES_BASE, NAMES_REVISION; \
+		snapshot_download(NAMES_BASE, revision=NAMES_REVISION)"
 
 venv:
 	@test -x $(PY) || { echo "no .venv: run make setup first"; exit 1; }
