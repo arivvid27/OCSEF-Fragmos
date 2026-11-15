@@ -37,6 +37,10 @@ describe("findHighEntropySecrets", () => {
     expect(secretsIn("12345678901234567890123456")).toEqual([]);
   });
 
+  it("finds a secret wrapped in square brackets", () => {
+    expect(secretsIn("keys = [" + RANDOM + "]")).toEqual([RANDOM]);
+  });
+
   it("ignores the scrubber's own placeholders", () => {
     expect(secretsIn("the key is [HIGH_ENTROPY_SECRET_12] here")).toEqual([]);
   });
