@@ -34,7 +34,7 @@ def test_assistant_history_reaches_upstream_unchanged():
                                           "content": [{"type": "text", "text": "17, 23"}], "is_error": False}]},
         ],
     )
-    inbound = wire.parse_request(body, {}, UPSTREAMS)
+    inbound = wire.parse_request(body, {}, UPSTREAMS, client="test")
     kwargs = wire.to_upstream(inbound.conversation, inbound.params)
     assert kwargs["system"] == body["system"]
     assert kwargs["messages"][1]["content"] == CAPTURED["content"]
@@ -47,20 +47,20 @@ def test_string_content_normalizes_the_same_way_every_turn():
         {"role": "assistant", "content": "hi there"},
         {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "file text"}]},
     ])
-    inbound = wire.parse_request(body, {}, UPSTREAMS)
+    inbound = wire.parse_request(body, {}, UPSTREAMS, client="test")
     first = wire.to_upstream(inbound.conversation, inbound.params)
     assert first["system"] == [{"type": "text", "text": "be brief"}]
     assert first["messages"][0]["content"] == [{"type": "text", "text": "hello"}]
     assert first["messages"][2]["content"][0]["content"] == [{"type": "text", "text": "file text"}]
 
-    again = wire.parse_request({**body, "system": first["system"], "messages": first["messages"]}, {}, UPSTREAMS)
+    again = wire.parse_request({**body, "system": first["system"], "messages": first["messages"]}, {}, UPSTREAMS, client="test")
     assert json.dumps(wire.to_upstream(again.conversation, again.params)) == json.dumps(first)
 
 
 def test_sampling_knobs_dropped_and_tool_choice_forced_auto():
     tools = [{"name": "read_file", "input_schema": {"type": "object"}}]
     body = request(temperature=0.2, top_p=0.9, top_k=5, tools=tools, tool_choice={"type": "any"})
-    inbound = wire.parse_request(body, {}, UPSTREAMS)
+    inbound = wire.parse_request(body, {}, UPSTREAMS, client="test")
     kwargs = wire.to_upstream(inbound.conversation, inbound.params)
     assert set(kwargs) == {"max_tokens", "messages", "tools", "tool_choice"}
     assert kwargs["tool_choice"] == {"type": "auto"}
@@ -68,9 +68,9 @@ def test_sampling_knobs_dropped_and_tool_choice_forced_auto():
 
 def test_headers_pick_session_upstream_and_forwarded_versions():
     headers = {"x-sentinel-session": "s1", "x-sentinel-upstream": "local", "anthropic-version": "2023-06-01"}
-    inbound = wire.parse_request(request(), headers, UPSTREAMS)
+    inbound = wire.parse_request(request(), headers, UPSTREAMS, client="test")
     assert (inbound.session_id, inbound.upstream_id, inbound.params.anthropic_version) == ("s1", "local", "2023-06-01")
-    default = wire.parse_request(request(), {}, UPSTREAMS)
+    default = wire.parse_request(request(), {}, UPSTREAMS, client="test")
     assert (default.session_id, default.upstream_id) == ("default", "cloud")
 
 
@@ -83,12 +83,12 @@ def test_headers_pick_session_upstream_and_forwarded_versions():
 ])
 def test_bad_requests_are_rejected(body, headers):
     with pytest.raises(wire.WireError):
-        wire.parse_request(body, headers, UPSTREAMS)
+        wire.parse_request(body, headers, UPSTREAMS, client="test")
 
 
 def test_rewrite_touches_text_and_tool_input_strings_but_never_thinking():
     body = request(messages=[{"role": "user", "content": "alice"}, {"role": "assistant", "content": CAPTURED["content"]}])
-    conv = wire.parse_request(body, {}, UPSTREAMS).conversation
+    conv = wire.parse_request(body, {}, UPSTREAMS, client="test").conversation
     leaves = list(conv.leaves())
     assert [leaf.text for leaf in leaves if leaf.rewritable] == ["alice", "primes.txt"]
     read_only = {leaf.text for leaf in leaves if not leaf.rewritable}
@@ -137,7 +137,7 @@ def test_every_value_sent_upstream_is_a_scanned_leaf():
             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_9", "is_error": "maybe",
                                           "content": [{"type": "text", "text": "saved"}, document]}]},
         ])
-    inbound = wire.parse_request(body, {"anthropic-beta": "files-api-2025-04-14"}, UPSTREAMS)
+    inbound = wire.parse_request(body, {"anthropic-beta": "files-api-2025-04-14"}, UPSTREAMS, client="test")
     leaves = list(inbound.leaves())
     texts = {leaf.text for leaf in leaves}
     keys = {line for leaf in leaves for line in leaf.text.split("\n")}
@@ -157,3 +157,68 @@ def test_every_value_sent_upstream_is_a_scanned_leaf():
 
     assert {v for v, scanned in scalars(sent) if v not in scanned and v not in PROTOCOL} == set()
     assert "files-api-2025-04-14" in texts
+
+
+def chat(**overrides):
+    return {"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}], **overrides}
+
+
+def openai_upstream_body(body, headers=None):
+    inbound = wire.parse_openai_request(body, headers or {}, UPSTREAMS, client="test")
+    return inbound.upstream_id, wire.to_upstream(inbound.conversation, inbound.params)
+
+
+def test_an_openai_chat_becomes_the_anthropic_request_the_core_forwards():
+    body = chat(messages=[
+        {"role": "system", "content": "Be brief."},
+        {"role": "developer", "content": [{"type": "text", "text": "Answer in English."}]},
+        {"role": "user", "content": [{"type": "text", "text": "Hi,"}, {"type": "text", "text": "who are you?"}]},
+        {"role": "assistant", "content": "An assistant."},
+        {"role": "user", "content": "Thanks."},
+    ], max_tokens=300, temperature=0.3, top_p=0.5, stream=True, stream_options={"include_usage": True})
+    upstream, sent = openai_upstream_body(body)
+    assert upstream == "cloud"
+    assert sent == {
+        "max_tokens": 300,
+        "system": [{"type": "text", "text": "Be brief."}, {"type": "text", "text": "Answer in English."}],
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "Hi,"}, {"type": "text", "text": "who are you?"}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "An assistant."}]},
+            {"role": "user", "content": [{"type": "text", "text": "Thanks."}]},
+        ],
+    }
+
+
+def test_empty_openai_text_never_reaches_the_upstream():
+    body = chat(messages=[{"role": "user", "content": "hi"}, {"role": "assistant", "content": ""},
+                          {"role": "user", "content": [{"type": "text", "text": ""}, {"type": "text", "text": "again"}]}])
+    assert openai_upstream_body(body)[1]["messages"] == [
+        {"role": "user", "content": [{"type": "text", "text": "hi"}]},
+        {"role": "user", "content": [{"type": "text", "text": "again"}]},
+    ]
+
+
+def test_openai_token_caps_prefer_max_completion_tokens_and_default_when_absent():
+    assert openai_upstream_body(chat(max_tokens=10, max_completion_tokens=20))[1]["max_tokens"] == 20
+    assert openai_upstream_body(chat(max_tokens=10, max_completion_tokens=None))[1]["max_tokens"] == 10
+    assert openai_upstream_body(chat())[1]["max_tokens"] == wire.OPENAI_MAX_TOKENS
+
+
+def test_the_openai_model_picks_an_upstream_and_anything_else_routes_like_the_anthropic_door():
+    assert openai_upstream_body(chat(model="local"))[0] == "local"
+    assert openai_upstream_body(chat(model="gpt-4o"))[0] == "cloud"
+    assert openai_upstream_body(chat(model="gpt-4o"), {"x-sentinel-upstream": "local"})[0] == "local"
+
+
+@pytest.mark.parametrize("body", [
+    chat(messages=[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64,AA"}}]}]),
+    chat(tools=[{"type": "function", "function": {"name": "f"}}]),
+    chat(messages=[{"role": "user", "content": "hi"}, {"role": "assistant", "content": None, "tool_calls": [{"id": "c"}]}]),
+    chat(messages=[{"role": "tool", "tool_call_id": "c", "content": "42"}]),
+    chat(messages=[{"role": "system", "content": "only a system prompt"}]),
+    chat(messages=[]),
+    chat(max_tokens="many"),
+], ids=["image", "tools", "tool-calls", "tool-role", "system-only", "empty", "max-tokens"])
+def test_openai_requests_the_core_cannot_carry_yet_are_refused(body):
+    with pytest.raises(wire.WireError):
+        wire.parse_openai_request(body, {}, UPSTREAMS, client="test")

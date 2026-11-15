@@ -54,7 +54,7 @@ class FakePorts:
 
 def inbound(text, upstream="cloud", history=()):
     body = {"model": "x", "max_tokens": 100, "messages": [*history, {"role": "user", "content": text}]}
-    return wire.parse_request(body, {"x-sentinel-upstream": upstream}, frozenset(UPSTREAMS))
+    return wire.parse_request(body, {"x-sentinel-upstream": upstream}, frozenset(UPSTREAMS), client="test")
 
 
 def decision_for(text, upstream="cloud", history=()):

@@ -3,7 +3,7 @@
 Fragmos keeps personal data and secrets out of the AI models you use. It has two front doors.
 
 - **The workspace is for people.** You paste a student note, a patient intake, or a config file. The browser swaps every name, contact, record id, and key for a placeholder such as `[SUBJECT_1]` before the prompt leaves the tab. Gemini, Claude, or GPT answers in placeholders, and the browser puts the real values back.
-- **The engine is for AI agents.** SENTINEL is a proxy between an agent and its models. The agent changes one line, its Anthropic client's `base_url`. The engine reads every request and every tool call the model asks for. A policy then lets it through, masks it, sends it to a local model, holds it for a human, or blocks it.
+- **The engine is for AI agents.** SENTINEL is a proxy between an agent and its models. The agent points its Anthropic client at `http://127.0.0.1:8787`, or its OpenAI client at `http://127.0.0.1:8787/v1`, and sends a gateway key from the dashboard. Open WebUI connects the same way. The engine reads every request and every tool call the model asks for. A policy then lets it through, masks it, sends it to a local model, holds it for a human, or blocks it.
 
 Both doors work the same way. Real values go out as placeholders, and the real values come back only on your side. The Monitor page shows the engine's decisions live and is where a person approves or denies a held tool call.
 
@@ -138,8 +138,8 @@ No real model followed the injection in 45 runs across seven models. `--vulnerab
 ## How the pieces connect
 
 ```
-  a person                                          an AI agent
-     │                                                  │ Anthropic SDK, base_url = http://127.0.0.1:8787
+  a person                                          an AI agent or a chat app
+     │                                                  │ Anthropic at :8787 or OpenAI at :8787/v1, gateway key
      ▼                                                  ▼
   Workspace  http://127.0.0.1:3000/                  SENTINEL engine  http://127.0.0.1:8787
   fragmos/components/Fragmos.tsx                     engine/sentinel/
@@ -165,9 +165,9 @@ The code lives in two directories.
 - `fragmos/` is the Next.js web app. It serves the workspace at `/` and the Monitor at `/monitor`. `fragmos/lib/` holds the browser scrubber, and `fragmos/app/api/` holds the two server routes, `/api/chat` and `/api/models`.
 - `engine/` is the SENTINEL engine, a FastAPI proxy. `engine/sentinel/core/` holds detection, policy, the vault, and the egress check, with no web framework or database imports. `engine/sentinel/presidio_detector.py` is the only module that imports Presidio. `engine/policy.yaml` holds the tiers, rules, and egress lists.
 
-The Monitor never calls port 8787 directly. `fragmos/next.config.ts` forwards the Monitor's routes under `/engine/*` to `SENTINEL_URL`, which defaults to `http://127.0.0.1:8787`, and the WebSocket goes through the same rewrite. Agent traffic (`/v1/messages`) is not forwarded.
+The Monitor never calls port 8787 directly. `fragmos/next.config.ts` forwards the Monitor's routes under `/engine/*` to `SENTINEL_URL`, which defaults to `http://127.0.0.1:8787`, and the WebSocket goes through the same rewrite. Agent traffic (`/v1/messages`, `/v1/chat/completions`) is not forwarded. [`engine/README.md`](engine/README.md#connect-an-agent-or-a-chat-app) explains gateway keys and how to connect a client.
 
-Both halves stay on this machine. The web app binds `127.0.0.1`. The engine accepts only a loopback `Host`, which stops DNS rebinding. It refuses a browser `Origin` that is not on `SENTINEL_ALLOWED_ORIGINS` (default: the web app on port 3000) for `/ws`, approvals, and `/v1/messages`. Approvals also need a JSON body, so another web page cannot send one without a preflight that fails. Next.js reads `SENTINEL_URL` when `next build` or `next dev` runs. If the engine is down, the Monitor shows **The engine is not running** and retries in the background.
+Both halves stay on this machine. The web app binds `127.0.0.1`. The engine accepts only a loopback `Host`, which stops DNS rebinding. It refuses a browser `Origin` that is not on `SENTINEL_ALLOWED_ORIGINS` (default: the web app on port 3000) for `/ws`, approvals, gateway keys, `/v1/messages`, and `/v1/chat/completions`. Every model call needs a live gateway key. Approvals and new keys also need a JSON body, so another web page cannot send one without a preflight that fails. Next.js reads `SENTINEL_URL` when `next build` or `next dev` runs. If the engine is down, the Monitor shows **The engine is not running** and retries in the background.
 
 The root `Makefile` drives both halves. Each root target runs the matching target in `engine/Makefile` and adds the web app's part:
 
