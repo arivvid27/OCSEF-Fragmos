@@ -8,6 +8,8 @@ include engine/run.mk
 setup:
 	$(MAKE) -C engine setup
 	npm --prefix fragmos ci
+	test -x webui/.venv/bin/python || ~/.local/bin/python3.11 -m venv webui/.venv
+	webui/.venv/bin/python -m pip install --timeout 120 --retries 10 -r webui/requirements.txt
 
 demo:
 	$(MAKE) -C engine demo
