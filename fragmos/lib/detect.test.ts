@@ -54,6 +54,16 @@ describe("detectSensitive", () => {
     expect(found("the key is ASIAIOSFODNN7\nEXAMPLEthanks")).toEqual([]);
   });
 
+  it("takes the whole key when its first line is a key by itself", () => {
+    const form = "sk-ant-" + "a".repeat(25) + "\n" + "b".repeat(10);
+    expect(found(`key: ${form}`)).toEqual(["API_KEY:" + form]);
+  });
+
+  it("covers both of two shapes that overlap in part", () => {
+    const form = "api_key=sk-ant-aaaaaaaaaa\n" + "b".repeat(12);
+    expect(found(`set ${form}`)).toEqual(["API_KEY:" + form]);
+  });
+
   it("finds a value in base64 that decodes with a control character", () => {
     expect(found("SSN OTEyLTM0LTU2NzgA")).toEqual(["SSN:OTEyLTM0LTU2NzgA"]);
     const inside = b64("912-34\u0000-5678");

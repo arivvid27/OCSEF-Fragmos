@@ -132,6 +132,11 @@ describe("scrubText on disguised values", () => {
     const { sanitized } = scrubText("Bluebird ships. bluebird slipped. Blue\u200Bbird is late.", { customTerms: ["bluebird"] });
     expect(sanitized).toBe("[CUSTOM_1] ships. [CUSTOM_1] slipped. [CUSTOM_2] is late.");
   });
+
+  it("replaces the whole key when its first line is a key by itself", () => {
+    const { sanitized } = scrubText("key: sk-ant-" + "a".repeat(25) + "\n" + "b".repeat(10));
+    expect(sanitized).toBe("key: [API_KEY_1]");
+  });
 });
 
 describe("scrubText on disguised presets", () => {
