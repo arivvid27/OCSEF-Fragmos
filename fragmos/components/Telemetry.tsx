@@ -23,7 +23,7 @@ const RISE_MS = 120;
 const FALL_MS = 1600;
 const PEAK_NORMALIZER = 0.76;
 const FADE_OUT_MS = 700;
-const OUT_COLOR = "#2c241e";
+const OUT_COLOR = "var(--color-ink)";
 const IN_COLOR = "var(--color-hold-line)";
 
 function formatBytes(n: number) {
@@ -230,8 +230,8 @@ export function Telemetry({ events, scrubMs }: Props) {
                 <stop offset="100%" stopColor={IN_COLOR} stopOpacity="0" />
               </linearGradient>
             </defs>
-            <line x1="0" x2={W} y1="4" y2="4" stroke="#e5e2d9" strokeWidth="1" />
-            <line x1="0" x2={W} y1={H - 4} y2={H - 4} stroke="#e5e2d9" strokeWidth="1" />
+            <line x1="0" x2={W} y1="4" y2="4" stroke="var(--color-line)" strokeWidth="1" />
+            <line x1="0" x2={W} y1={H - 4} y2={H - 4} stroke="var(--color-line)" strokeWidth="1" />
             <path ref={outAreaRef} d={flat + " Z"} fill="url(#out-fill)" />
             <path ref={inAreaRef} d={flat + " Z"} fill="url(#in-fill)" />
             <path
@@ -255,7 +255,7 @@ export function Telemetry({ events, scrubMs }: Props) {
               strokeLinecap="round"
               vectorEffect="non-scaling-stroke"
             />
-            <line x1="0" x2={W} y1={MID} y2={MID} stroke="#2d5a27" strokeWidth="1.5" strokeOpacity="0.85" />
+            <line x1="0" x2={W} y1={MID} y2={MID} stroke="var(--color-forest)" strokeWidth="1.5" strokeOpacity="0.85" />
           </svg>
 
           <div className="mt-1.5 flex justify-between text-[10.5px] text-taupe/80">

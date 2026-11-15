@@ -82,7 +82,7 @@ export function Editor({
         data-token={s.token}
         data-start={s.start}
         className={`rounded-[2px] text-inherit shadow-[inset_0_-2px_0_var(--color-risk-line)] transition-colors duration-150 ${
-          active ? "bg-[#f1cdc7]" : "bg-risk"
+          active ? "bg-risk-line/40" : "bg-risk"
         }`}
       >
         {value.slice(s.start, s.end)}

@@ -4,15 +4,17 @@ WEBUI_PORT := 8080
 WEBUI_KEY := $(RUN)/openwebui.key
 FRAGMOS_ENGINE_URL ?= http://127.0.0.1:8787/v1
 FRAGMOS_CHAT_MODEL ?= cloud
+# The interpreter that creates the venvs: the pinned 3.11 when present, else the newest python3 on PATH.
+PYTHON ?= $(or $(wildcard $(HOME)/.local/bin/python3.11),$(shell command -v python3.11 || command -v python3))
 
 .PHONY: setup demo down test check webui
 
 include engine/run.mk
 
 setup:
-	$(MAKE) -C engine setup
+	$(MAKE) -C engine setup PYTHON=$(PYTHON)
 	npm --prefix fragmos ci
-	test -x webui/.venv/bin/python || ~/.local/bin/python3.11 -m venv webui/.venv
+	test -x webui/.venv/bin/python || $(PYTHON) -m venv webui/.venv
 	webui/.venv/bin/python -m pip install --timeout 120 --retries 10 -r webui/requirements.txt
 
 demo:

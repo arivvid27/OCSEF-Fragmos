@@ -1,11 +1,13 @@
 PY := .venv/bin/python
 RUN := .run
 SENTINEL_PORT ?= 8787
+# The interpreter that creates .venv: the pinned 3.11 when present, else the newest python3 on PATH.
+PYTHON ?= $(or $(wildcard $(HOME)/.local/bin/python3.11),$(shell command -v python3.11 || command -v python3))
 
 .PHONY: setup data up down check test demo demo-key env venv
 
 setup:
-	test -x $(PY) || ~/.local/bin/python3.11 -m venv .venv
+	test -x $(PY) || $(PYTHON) -m venv .venv
 	$(PY) -m pip install -r requirements.txt
 	$(PY) -c "import en_core_web_lg" 2>/dev/null || $(PY) -m spacy download en_core_web_lg
 	$(PY) -c "from huggingface_hub import snapshot_download; from sentinel.presidio_detector import NAMES_BASE, NAMES_REVISION; \

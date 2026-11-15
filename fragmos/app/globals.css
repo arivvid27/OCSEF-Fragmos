@@ -1,24 +1,24 @@
 @import "tailwindcss";
 
 @theme {
-  --color-canvas: #faf8f5;
-  --color-surface: #ffffff;
-  --color-panel: #f2efe9;
-  --color-line: #e5e2d9;
-  --color-ink: #2c241e;
-  --color-taupe: #6e6359;
-  --color-forest: #2d5a27;
-  --color-forest-deep: #244a1f;
-  --color-token: #e6f0e4;
-  --color-token-ink: #1e3f1a;
-  --color-terracotta: #8f3527;
-  --color-risk: #f9eae8;
+  --color-canvas: #2c241e;
+  --color-surface: #3a3028;
+  --color-panel: #4a3e34;
+  --color-line: #6e6359;
+  --color-ink: #faf8f5;
+  --color-taupe: #d6cfc3;
+  --color-forest: #e6f0e4;
+  --color-forest-deep: #2d5a27;
+  --color-token: #1e3f1a;
+  --color-token-ink: #e6f0e4;
+  --color-terracotta: #f9eae8;
+  --color-risk: #8f3527;
   --color-risk-line: #b84a39;
-  --color-local: #f1eaf2;
-  --color-local-ink: #5a3d66;
+  --color-local: #5a3d66;
+  --color-local-ink: #f1eaf2;
   --color-local-line: #7a5a88;
-  --color-hold: #f6eedd;
-  --color-hold-ink: #7a5a1f;
+  --color-hold: #7a5a1f;
+  --color-hold-ink: #f6eedd;
   --color-hold-line: #a9803a;
 
   --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
@@ -64,6 +64,7 @@
 
 html {
   scroll-behavior: smooth;
+  color-scheme: dark;
 }
 
 body {
@@ -80,7 +81,7 @@ body {
 
 .scroll-warm {
   scrollbar-width: thin;
-  scrollbar-color: #d6cfc3 transparent;
+  scrollbar-color: var(--color-taupe) transparent;
 }
 
 @media (prefers-reduced-motion: reduce) {
