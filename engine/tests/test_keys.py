@@ -1,7 +1,11 @@
 """Gateway keys: the dashboard mints, lists and revokes them; only a hash of each key is kept."""
 
+import os
 import re
 import sqlite3
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -58,3 +62,15 @@ def test_a_web_page_cannot_mint_list_or_revoke_keys(stack):
     assert client.get("/api/keys", headers=EVIL).status_code == 403
     assert client.delete(f"/api/keys/{key_id}", headers=EVIL).status_code == 403
     assert key_id in listed(client)
+
+
+def test_the_cli_prints_only_a_key_that_the_server_on_the_same_database_accepts(tmp_path):
+    db = tmp_path / "sentinel.db"
+    done = subprocess.run([sys.executable, "-m", "sentinel", "keys", "create", "demo"], capture_output=True, text=True,
+                          cwd=Path(__file__).resolve().parent.parent, env={**os.environ, "SENTINEL_DB": str(db)},
+                          check=True)
+    key = done.stdout.removesuffix("\n")
+    assert re.fullmatch(r"fk_[A-Za-z0-9_-]{40}", key)
+    client = TestClient(create_app(db_path=db, hosts=(*LOOPBACK_HOSTS, "testserver")))
+    assert client.get("/v1/models", headers={"authorization": f"Bearer {key}"}).status_code == 200
+    assert [k["name"] for k in client.get("/api/keys").json()] == ["demo"]

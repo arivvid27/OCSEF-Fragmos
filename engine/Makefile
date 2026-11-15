@@ -30,6 +30,8 @@ up: venv env
 		for i in $$(seq 120); do curl -sf -o /dev/null $$url && break; sleep 0.5; done; \
 		curl -sf -o /dev/null $$url || { echo "$$url did not come up; see $(RUN)/*.log"; exit 1; }; \
 	done
+	@curl -sf -o /dev/null -H "x-api-key: $$(cat $(RUN)/demo.key 2>/dev/null)" http://127.0.0.1:8787/v1/models \
+		|| { (umask 077; $(PY) -m sentinel keys create demo >$(RUN)/demo.key) && echo "minted gateway key demo into $(RUN)/demo.key"; }
 	@echo "stack is up (logs in $(RUN)/)"
 
 down:

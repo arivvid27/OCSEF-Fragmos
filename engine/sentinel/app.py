@@ -24,14 +24,13 @@ from sentinel.core.policy import load_policy
 from sentinel.core.turn import TurnContext, UpstreamError, run_turn
 from sentinel.core.vault import Vault
 from sentinel.presidio_detector import PresidioDetector
-from sentinel.store import Store
+from sentinel.store import DEFAULT_DB, KEY_NAME_MAX, Store
 from sentinel.upstreams import UpstreamClients, registry_from_env
 
 ROOT = Path(__file__).resolve().parent.parent
 MONITOR_ORIGINS = "http://127.0.0.1:3000,http://localhost:3000"
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
 PUBLIC_URL = "http://127.0.0.1:8787"
-KEY_NAME_MAX = 100
 NO_KEY = ("a valid Fragmos gateway key is required: create one in the dashboard or with "
           "python -m sentinel keys create <name>")
 
@@ -84,7 +83,7 @@ class ShellPorts:
         await self._hub.broadcast({"kind": "event", "data": data})
 
 
-def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / "policy.yaml",
+def create_app(db_path: Path = DEFAULT_DB, policy_path: Path = ROOT / "policy.yaml",
                hold_seconds: float = HOLD_SECONDS, hosts: tuple[str, ...] = LOOPBACK_HOSTS,
                clients: UpstreamClients | None = None) -> FastAPI:
     """clients replaces the real upstream calls, for tests."""

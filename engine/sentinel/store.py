@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = Path(__file__).with_name("schema.sql")
+DEFAULT_DB = Path(__file__).resolve().parent.parent / "sentinel.db"
+KEY_NAME_MAX = 100
 KEY_COLUMNS = "id, name, prefix, created_at, last_used_at"
 
 
