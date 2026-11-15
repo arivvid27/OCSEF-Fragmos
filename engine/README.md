@@ -164,6 +164,10 @@ Detection, policy, the vault, and the egress check live in `sentinel/core/`. Tha
 | Endpoint | Returns |
 |---|---|
 | `POST /v1/messages` | The Anthropic Messages API, non-streaming. Sessions come from the `x-sentinel-session` header. The `x-sentinel-upstream` header picks a registered upstream, `cloud` by default. |
+| `GET /api/gateway` | `openai_base_url`, `anthropic_base_url`, and `models`, for the dashboard. |
+| `GET /api/keys` | Gateway keys: `id`, `name`, `prefix`, `created_at`, `last_used_at`. Never the key. |
+| `POST /api/keys` | Creates a key from `{"name": "..."}` and returns 201 with the plain `key`, the only time it is shown. |
+| `DELETE /api/keys/{id}` | Revokes a key at once. Returns 204, or 404 for an unknown id. |
 | `GET /api/events?limit=200` | The latest events, one per turn. `&session=<id>` keeps one session's events. |
 | `GET /api/stats` | Counts by action, entity type, and destination. |
 | `GET /api/approvals` | Approvals, pending ones first. |
@@ -173,7 +177,7 @@ Detection, policy, the vault, and the egress check live in `sentinel/core/`. Tha
 | `GET /health` | Whether cloud credentials are set, whether the local upstream answers, and the rule count. |
 | `WS /ws` | Each new event and approval as it happens. |
 
-The Monitor calls its endpoints under `http://127.0.0.1:3000/engine/`, for example `/engine/api/events`. The web app forwards only `/api/events`, `/api/stats`, `/api/upstreams`, `/api/approvals` and `/ws`.
+The Monitor and Connect pages call their endpoints under `http://127.0.0.1:3000/engine/`, for example `/engine/api/events`. The web app forwards only `/api/events`, `/api/stats`, `/api/upstreams`, `/api/approvals`, `/api/gateway`, `/api/keys` and `/ws`.
 
 SENTINEL accepts only a loopback `Host` header (`127.0.0.1` or `localhost`), so a DNS-rebound name gets 400. A browser `Origin` that is not on `SENTINEL_ALLOWED_ORIGINS` gets 403 on `/ws`, `POST /api/approvals/{id}`, and `POST /v1/messages`. The default list is `http://127.0.0.1:3000,http://localhost:3000`. Agents and curl send no `Origin`, so they are not affected. An approval also needs `Content-Type: application/json`, or it gets 415.
 
