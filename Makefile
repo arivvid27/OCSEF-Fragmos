@@ -2,6 +2,7 @@ RUN := engine/.run
 WEB_PORT := 3000
 WEBUI_PORT := 8080
 WEBUI_KEY := $(RUN)/openwebui.key
+FRAGMOS_CHAT_MODEL ?= cloud
 
 .PHONY: setup demo down test check webui
 
@@ -31,7 +32,7 @@ webui:
 	@test -s $(WEBUI_KEY) || { umask 077; (cd engine && .venv/bin/python -m sentinel keys create openwebui) >$(WEBUI_KEY).new \
 		&& mv $(WEBUI_KEY).new $(WEBUI_KEY) && echo "minted engine key openwebui"; } \
 		|| { echo "could not mint the openwebui key"; exit 1; }
-	@$(call start,webui,$(WEBUI_PORT),env PORT=$(WEBUI_PORT) FRAGMOS_KEY_FILE=$(WEBUI_KEY) webui/serve.sh)
+	@$(call start,webui,$(WEBUI_PORT),env PORT=$(WEBUI_PORT) FRAGMOS_KEY_FILE=$(WEBUI_KEY) FRAGMOS_CHAT_MODEL=$(FRAGMOS_CHAT_MODEL) webui/serve.sh)
 	@for i in $$(seq 240); do curl -sf -o /dev/null http://127.0.0.1:$(WEBUI_PORT)/health && break; sleep 0.5; done; \
 		curl -sf -o /dev/null http://127.0.0.1:$(WEBUI_PORT)/health || { echo "Open WebUI did not come up; see $(RUN)/webui.log"; exit 1; }
 

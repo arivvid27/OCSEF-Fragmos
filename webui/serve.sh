@@ -8,6 +8,7 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 port=${PORT:-8080}
 engine=${FRAGMOS_ENGINE_URL:-http://127.0.0.1:8787/v1}
+model=${FRAGMOS_CHAT_MODEL:-cloud}
 key_file=${FRAGMOS_KEY_FILE:-$here/../engine/.run/openwebui.key}
 data=${DATA_DIR:-$here/data}
 
@@ -25,7 +26,7 @@ exec env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_
 	ENABLE_OLLAMA_API=False \
 	OPENAI_API_BASE_URLS="$engine" \
 	OPENAI_API_KEYS="$key" \
-	DEFAULT_MODELS=cloud \
+	DEFAULT_MODELS="$model" \
 	ENABLE_FORWARD_USER_INFO_HEADERS=True \
 	FORWARD_SESSION_INFO_HEADER_CHAT_ID=x-sentinel-session \
 	ENABLE_TITLE_GENERATION=False \
