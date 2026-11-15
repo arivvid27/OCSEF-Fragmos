@@ -22,8 +22,8 @@ import { ResponsePane } from "./ResponsePane";
 import { SettingsMenu } from "./SettingsMenu";
 import type { EgressEvent } from "./Telemetry";
 
-function buildPayload(sanitizedPrompt: string) {
-  return JSON.stringify({ sanitizedPrompt: sanitizedPrompt }, null, 2);
+function buildPayload(sanitizedPrompt: string, policies: PolicyId[]) {
+  return JSON.stringify({ sanitizedPrompt: sanitizedPrompt, policies: policies }, null, 2);
 }
 
 export function Fragmos() {
@@ -50,7 +50,7 @@ export function Fragmos() {
 
   const deferredInput = useDeferredValue(input);
   const scrub = useMemo(() => scrubText(deferredInput, options), [deferredInput, options]);
-  const payload = buildPayload(scrub.sanitized);
+  const payload = buildPayload(scrub.sanitized, policies);
 
   useEffect(() => {
     return () => {
@@ -113,7 +113,7 @@ export function Fragmos() {
     }
 
     const fresh = scrubText(input, options);
-    const body = buildPayload(fresh.sanitized);
+    const body = buildPayload(fresh.sanitized, policies);
 
     if (leaksOriginal(fresh.sanitized, fresh.vault)) {
       setPhase("error");
