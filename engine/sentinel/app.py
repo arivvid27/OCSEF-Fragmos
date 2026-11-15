@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -22,6 +23,7 @@ from sentinel.store import Store
 from sentinel.upstreams import UpstreamClients, registry_from_env
 
 ROOT = Path(__file__).resolve().parent.parent
+MONITOR_ORIGINS = "http://127.0.0.1:3000,http://localhost:3000"
 
 
 class Hub:
@@ -77,7 +79,12 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
     desk.expire_orphans()
     ports = ShellPorts(clients, store, hub, desk)
     vaults: dict[str, Vault] = {}  # by x-sentinel-session
+    origins = {o.strip() for o in (os.environ.get("SENTINEL_ALLOWED_ORIGINS") or MONITOR_ORIGINS).split(",")} - {""}
     app = FastAPI(title="SENTINEL")
+
+    def foreign(origin: str | None) -> bool:
+        """An agent or curl sends no Origin; a browser always does, and only the monitor's may reach in."""
+        return origin is not None and origin not in origins
 
     @app.post("/v1/messages")
     async def messages(request: Request) -> JSONResponse:
@@ -106,6 +113,11 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
 
     @app.post("/api/approvals/{approval_id}")
     async def decide(approval_id: str, request: Request) -> JSONResponse:
+        if foreign(request.headers.get("origin")):
+            return JSONResponse({"error": "origin not allowed"}, status_code=403)
+        # A page can POST text/plain or a form to any host without asking; JSON makes the browser ask first, and fail.
+        if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+            return JSONResponse({"error": "content-type must be application/json"}, status_code=415)
         try:
             body = await request.json()
         except json.JSONDecodeError:
@@ -138,6 +150,9 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
 
     @app.websocket("/ws")
     async def ws(socket: WebSocket) -> None:
+        if foreign(socket.headers.get("origin")):
+            await socket.close(code=1008)
+            return
         await hub.serve(socket)
 
     return app

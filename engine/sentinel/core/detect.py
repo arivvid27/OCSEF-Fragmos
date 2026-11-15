@@ -8,7 +8,7 @@ from typing import Iterable, Mapping, Protocol, Sequence
 
 from .model import Detection, Finding, Leaf, Span, Tier
 from .vault import PLACEHOLDER, Vault
-from .views import compact, decoded, normalized
+from .views import View, compact, decoded, normalized
 
 VIEW_TYPES = frozenset({"US_SSN", "SECRET"})
 SURE = 0.5  # a delimited SSN or a key with its own head; a bare run of nine digits scores 0.05
@@ -70,13 +70,19 @@ def _disguised(leaf: Leaf, detector: Detector, tiers: Mapping[str, Tier], found:
     wanted = VIEW_TYPES & frozenset(tiers)
     if not wanted:
         return []
-    views = [(v, wanted, SHAPED) for v in decoded(leaf.text)]
-    if not leaf.encoded:  # bytes have no dashes or spacing to disguise; their one other reading is the decoded one
-        plain = normalized(leaf.text)
+    tokens = decoded(leaf.text)
+    views = []
+    for types, keep_underscores in ((wanted & {"US_SSN"}, False), (wanted & {"SECRET"}, True)):
+        if not types:
+            continue
+        views += [(View(normalized(t.text, keep_underscores).text, (), t.whole), types, SHAPED) for t in tokens]
+        if leaf.encoded:  # bytes have no dashes or spacing to disguise; their one other reading is the decoded one
+            continue
+        plain = normalized(leaf.text, keep_underscores)
         if plain.text != leaf.text:
-            views.append((plain, wanted, SHAPED))
-        if "SECRET" in wanted:  # with no spaces left, prose reads as one random run and as `name:value` pairs
-            views.append((compact(plain), frozenset({"SECRET"}), SURE))
+            views.append((plain, types, SHAPED))
+        if "SECRET" in types:  # with no spaces left, prose reads as one random run and as `name:value` pairs
+            views.append((compact(plain), types, SURE))
 
     seen = [(f.entity_type, f.start, f.end) for f in found]
     extra = []
