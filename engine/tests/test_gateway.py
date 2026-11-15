@@ -163,13 +163,16 @@ def test_the_openai_door_answers_errors_in_openai_shape(gateway):
     client, upstream = gateway
     _, key = mint(client)
     calls = len(upstream.seen)
+    overloaded = openai_turn(client, key, "overload", "s-err")
     for response, status in [(openai_turn(client, "fk_wrong", "hi", "s-err"), 401),
                              (client.post("/v1/chat/completions", json={"model": "x", "messages": []},
                                           headers={"authorization": f"Bearer {key}"}), 400),
-                             (openai_turn(client, key, "overload", "s-err"), 529)]:
+                             (overloaded, 529)]:
         assert response.status_code == status
         assert isinstance(response.json()["error"]["message"], str)
     assert openai_turn(client, "fk_wrong", "hi", "s-err").json()["error"]["code"] == "invalid_api_key"
+    assert overloaded.json() == {
+        "error": {"message": "Overloaded", "type": "invalid_request_error", "param": None, "code": None}}
     assert len(upstream.seen) == calls + 1
 
 
