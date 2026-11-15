@@ -27,6 +27,7 @@ demo:
 	@echo "chat       http://127.0.0.1:$(WEBUI_PORT)/"
 	@echo "run the scenarios above from engine/"
 
+# Open WebUI reads its engine key only at launch, so minting a key restarts it.
 webui:
 	@test -x webui/.venv/bin/open-webui || { echo "no webui/.venv: run make setup first"; exit 1; }
 	@mkdir -p $(RUN)
@@ -34,6 +35,7 @@ webui:
 	if [ ! -s $(WEBUI_KEY) ] || [ "$$code" = 401 ]; then umask 077; \
 		(cd engine && .venv/bin/python -m sentinel keys create openwebui) >$(WEBUI_KEY).new && mv $(WEBUI_KEY).new $(WEBUI_KEY) \
 			&& echo "minted gateway key openwebui into $(WEBUI_KEY)" || { echo "could not mint the openwebui key"; exit 1; }; \
+		$(webui_stop); \
 	fi
 	@$(webui_start)
 # The start that creates the admin turns signup off until the next start.
