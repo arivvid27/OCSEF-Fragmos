@@ -16,6 +16,10 @@ export interface Call {
   prompt: string;
 }
 
+export function hasServerGeminiCredentials(): boolean {
+  return Boolean(process.env.GEMINI_API_KEY) || process.env.GOOGLE_GENAI_USE_VERTEXAI === "true";
+}
+
 export function statusOf(err: unknown): number | undefined {
   if (err instanceof UpstreamError) {
     return err.status;

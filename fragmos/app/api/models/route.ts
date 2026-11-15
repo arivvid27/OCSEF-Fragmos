@@ -1,5 +1,6 @@
+import { hasServerGeminiCredentials, listModels, statusOf } from "@/lib/server/llm";
+import { limitServerKey } from "@/lib/server/rate-limit";
 import { parseCredentials } from "@/lib/server/request";
-import { listModels, statusOf } from "@/lib/server/llm";
 
 export async function GET(request: Request) {
   const credentials = parseCredentials(request.headers);
@@ -13,8 +14,14 @@ export async function GET(request: Request) {
   if (provider.id !== "gemini" && !key) {
     return Response.json({ ...fallback, error: "Add a key to load your available models." });
   }
-  if (provider.id === "gemini" && !key && !process.env.GEMINI_API_KEY) {
-    return Response.json({ ...fallback, error: "Add a key to load your available models." });
+  if (provider.id === "gemini" && !key) {
+    if (!hasServerGeminiCredentials()) {
+      return Response.json({ ...fallback, error: "Add a key to load your available models." });
+    }
+    const limited = limitServerKey(request);
+    if (limited) {
+      return limited;
+    }
   }
 
   try {

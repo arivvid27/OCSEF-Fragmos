@@ -1,8 +1,9 @@
 import { containsResidualPII } from "@/lib/detect";
 import { disabledCategories } from "@/lib/policies";
 import type { ProviderId } from "@/lib/providers";
+import { hasServerGeminiCredentials, openStream, statusOf } from "@/lib/server/llm";
+import { limitServerKey } from "@/lib/server/rate-limit";
 import { parseChatRequest } from "@/lib/server/request";
-import { openStream, statusOf } from "@/lib/server/llm";
 
 const DEFAULT_MODELS: Record<ProviderId, string[]> = {
   gemini: process.env.GEMINI_MODEL
@@ -70,12 +71,15 @@ export async function POST(request: Request) {
     );
   }
   if (provider.id === "gemini" && !userKey) {
-    const hasServerKey = Boolean(process.env.GEMINI_API_KEY) || process.env.GOOGLE_GENAI_USE_VERTEXAI === "true";
-    if (!hasServerKey) {
+    if (!hasServerGeminiCredentials()) {
       return Response.json(
         { error: "No Gemini key available. Add your own in Settings, or set GEMINI_API_KEY on the server." },
         { status: 503 },
       );
+    }
+    const limited = limitServerKey(request);
+    if (limited) {
+      return limited;
     }
   }
 

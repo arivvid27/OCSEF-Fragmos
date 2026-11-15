@@ -1,14 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { openStream } from "@/lib/server/llm";
+import { beforeEach, describe, expect, it, vi, type MockedFunction } from "vitest";
+import type * as llm from "@/lib/server/llm";
 import { DISGUISED_SSNS } from "@/lib/test-fixtures";
-import { POST } from "./route";
-
-vi.hoisted(() => vi.stubEnv("GEMINI_MODEL", ""));
 
 vi.mock("@/lib/server/llm", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/server/llm")>()),
+  ...(await importOriginal<typeof llm>()),
   openStream: vi.fn(),
 }));
+
+let POST: (request: Request) => Promise<Response>;
+let openStream: MockedFunction<typeof llm.openStream>;
 
 function reply(text: string): ReadableStream<Uint8Array> {
   return new ReadableStream({
@@ -29,12 +29,17 @@ function post(body: unknown, headers: Record<string, string> = {}): Promise<Resp
   );
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  vi.unstubAllEnvs();
   vi.stubEnv("GEMINI_API_KEY", "server-key-for-tests");
+  vi.stubEnv("GEMINI_MODEL", "");
   vi.stubEnv("GOOGLE_GENAI_USE_VERTEXAI", "");
-  vi.mocked(openStream).mockReset();
-  vi.mocked(openStream).mockImplementation(async () => reply("Dear [SUBJECT_1], ok"));
   vi.spyOn(console, "error").mockImplementation(() => {});
+
+  vi.resetModules();
+  openStream = vi.mocked((await import("@/lib/server/llm")).openStream);
+  openStream.mockReset().mockImplementation(async () => reply("Dear [SUBJECT_1], ok"));
+  ({ POST } = await import("./route"));
 });
 
 describe("POST /api/chat", () => {
@@ -42,7 +47,7 @@ describe("POST /api/chat", () => {
     const res = await post({ sanitizedPrompt: "Write to [SUBJECT_1] about [SSN_1].", policies: ["hipaa", "pci"] });
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("Dear [SUBJECT_1], ok");
-    expect(vi.mocked(openStream).mock.calls[0][1].prompt).toBe("Write to [SUBJECT_1] about [SSN_1].");
+    expect(openStream.mock.calls[0][1].prompt).toBe("Write to [SUBJECT_1] about [SSN_1].");
   });
 
   it("answers 422 to a residual SSN and never calls the model", async () => {
@@ -115,7 +120,7 @@ describe("POST /api/chat", () => {
     expect((await post({ sanitizedPrompt: "hello" }, { "x-provider": "claude" })).status).toBe(400);
     const res = await post({ sanitizedPrompt: "hello" }, { "x-provider": "claude", "x-user-key": "sk-ant-user-key-1234" });
     expect(res.status).toBe(200);
-    expect(vi.mocked(openStream).mock.calls[0]).toEqual([
+    expect(openStream.mock.calls[0]).toEqual([
       "claude",
       expect.objectContaining({ key: "sk-ant-user-key-1234", model: "claude-sonnet-5-5" }),
     ]);
@@ -129,11 +134,11 @@ describe("POST /api/chat", () => {
   it("retries a busy model once, then falls back to the next default model", async () => {
     vi.useFakeTimers();
     const busy = Object.assign(new Error("busy"), { status: 503 });
-    vi.mocked(openStream).mockRejectedValueOnce(busy).mockRejectedValueOnce(busy);
+    openStream.mockRejectedValueOnce(busy).mockRejectedValueOnce(busy);
     const pending = post({ sanitizedPrompt: "hello" });
     await vi.advanceTimersByTimeAsync(600);
     expect((await pending).status).toBe(200);
-    expect(vi.mocked(openStream).mock.calls.map((call) => call[1].model)).toEqual([
+    expect(openStream.mock.calls.map((call) => call[1].model)).toEqual([
       "gemini-3.6-flash",
       "gemini-3.6-flash",
       "gemini-3.1-flash-lite",
@@ -142,9 +147,66 @@ describe("POST /api/chat", () => {
   });
 
   it("answers 502 with the reason when the model rejects the request", async () => {
-    vi.mocked(openStream).mockRejectedValue(Object.assign(new Error("denied"), { status: 403 }));
+    openStream.mockRejectedValue(Object.assign(new Error("denied"), { status: 403 }));
     const res = await post({ sanitizedPrompt: "hello" });
     expect(res.status).toBe(502);
     expect((await res.json()).error).toContain("server's API key was rejected");
+  });
+
+  describe("shared Gemini key", () => {
+    function from(ip: string, headers: Record<string, string> = {}) {
+      return post({ sanitizedPrompt: "hello" }, { "x-forwarded-for": ip, ...headers });
+    }
+
+    it("answers 429 once a client passes its limit, and says when to retry", async () => {
+      vi.stubEnv("SERVER_KEY_RATE_LIMIT", "3");
+      for (let i = 0; i < 3; i++) {
+        expect((await from("203.0.113.7")).status).toBe(200);
+      }
+      const res = await from("203.0.113.7");
+      expect(res.status).toBe(429);
+      expect(Number(res.headers.get("retry-after"))).toBeGreaterThan(0);
+      expect(Number(res.headers.get("retry-after"))).toBeLessThanOrEqual(60);
+      expect(openStream).toHaveBeenCalledTimes(3);
+    });
+
+    it("counts each client on its own", async () => {
+      vi.stubEnv("SERVER_KEY_RATE_LIMIT", "1");
+      expect((await from("203.0.113.7")).status).toBe(200);
+      expect((await from("203.0.113.7")).status).toBe(429);
+      expect((await from("203.0.113.8, 10.0.0.1")).status).toBe(200);
+    });
+
+    it("caps all clients together, whatever address they claim", async () => {
+      vi.stubEnv("SERVER_KEY_RATE_LIMIT_TOTAL", "2");
+      expect((await from("203.0.113.1")).status).toBe(200);
+      expect((await from("203.0.113.2")).status).toBe(200);
+      expect((await from("203.0.113.3")).status).toBe(429);
+    });
+
+    it("does not limit requests that bring their own key", async () => {
+      vi.stubEnv("SERVER_KEY_RATE_LIMIT", "1");
+      expect((await from("203.0.113.7")).status).toBe(200);
+      expect((await from("203.0.113.7")).status).toBe(429);
+      expect((await from("203.0.113.7", { "x-user-key": "AIzaUserKey-1234567890" })).status).toBe(200);
+    });
+
+    it("does not count requests rejected before the model is called", async () => {
+      vi.stubEnv("SERVER_KEY_RATE_LIMIT", "1");
+      const leaky = { sanitizedPrompt: "SSN 531-62-4408" };
+      expect((await post(leaky, { "x-forwarded-for": "203.0.113.7" })).status).toBe(422);
+      expect((await from("203.0.113.7")).status).toBe(200);
+    });
+
+    it("opens a new window after the old one ends", async () => {
+      vi.stubEnv("SERVER_KEY_RATE_LIMIT", "1");
+      vi.stubEnv("SERVER_KEY_RATE_WINDOW_SECONDS", "30");
+      vi.useFakeTimers({ toFake: ["Date"] });
+      expect((await from("203.0.113.7")).status).toBe(200);
+      expect((await from("203.0.113.7")).status).toBe(429);
+      vi.advanceTimersByTime(30_000);
+      expect((await from("203.0.113.7")).status).toBe(200);
+      vi.useRealTimers();
+    });
   });
 });
