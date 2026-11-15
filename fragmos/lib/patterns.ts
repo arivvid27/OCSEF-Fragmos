@@ -159,6 +159,10 @@ function steppingOverWhitespace(re: RegExp): RegExp {
   return new RegExp("(?!\\s)" + source, re.flags);
 }
 
+function notJoinedToProse(match: string): boolean {
+  return /[\r\n]/.test(match) || !match.split(/\s+/).slice(1).some((piece) => /^[a-z]{2,}$/.test(piece));
+}
+
 export const BROKEN_KEY_PATTERNS: StructuredPattern[] = STRUCTURED_PATTERNS.filter((p) => p.acrossWhitespace).map(
-  (p) => ({ category: p.category, re: steppingOverWhitespace(p.re) }),
+  (p) => ({ category: p.category, re: steppingOverWhitespace(p.re), validate: notJoinedToProse }),
 );

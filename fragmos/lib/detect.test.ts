@@ -51,6 +51,10 @@ describe("detectSensitive", () => {
     expect(found(`the token is ${jwt}.`)).toEqual(["JWT:" + jwt]);
   });
 
+  it("leaves prose that starts like a key alone", () => {
+    expect(found("We use sk-learn for classification tasks in the pipeline.")).toEqual([]);
+  });
+
   it("does not join a key shape to the letters of the next word", () => {
     expect(found("the key is ASIAIOSFODNN7\nEXAMPLEthanks")).toEqual([]);
   });
