@@ -49,7 +49,7 @@ Run every command from the repository root.
 	make demo
 	```
 
-	You should see `started proxy on :8787`, `started site on :8788`, `started stub on :8789`, and `stack is up`, then the four scenario commands. The web app builds next, and `make demo` waits up to two minutes for it to answer. Open WebUI starts after the web app, with the same two-minute wait. Its first start after `make setup` took about 50 s, and later starts took about 10 s. The output ends with these lines:
+	You should see `started proxy on :8787`, `started site on :8788`, `started stub on :8789`, and `stack is up`, then the four scenario commands. The web app builds next, and `make demo` waits up to two minutes for it to answer. Open WebUI starts after the web app, with the same two-minute wait. Its first start after `make setup` took about 50 s, and later starts took about 10 s. The first start creates the chat app's admin account and then restarts Open WebUI once, so you see `started webui`, `stopped webui`, and `started webui` again. The output ends with these lines:
 
 	```
 	workspace  http://127.0.0.1:3000/
@@ -90,7 +90,7 @@ To develop the web app with hot reload, see [`fragmos/README.md`](fragmos/README
 
 Open WebUI is a chat app that looks and works like ChatGPT. `make demo` starts it on port 8080 with the Fragmos engine as its only model provider. Every prompt goes through the same policy as agent traffic, and every turn shows up in the Monitor. To start only the chat app while the engine is already up, run `make webui`.
 
-1. Open `http://127.0.0.1:8080/`. There is no login.
+1. Open `http://127.0.0.1:8080/`. On your first visit, click **Sign up**, enter any name, email, and password, and click **Create Account**. The chat opens. A sign-in lasts four weeks, so later visits go straight to the chat.
 2. Pick a model at the top of the chat. `cloud` is the default, and `local` is listed too. To change the default, start with `FRAGMOS_CHAT_MODEL`, for example `make demo FRAGMOS_CHAT_MODEL=local`.
 3. Send a prompt as you would in ChatGPT. The answer arrives in one piece, because the engine checks the whole reply before it sends any of it.
 
@@ -98,7 +98,9 @@ How the chat app is set up:
 
 - `make webui` mints a gateway key named `openwebui` into `engine/.run/openwebui.key` when that file is missing or the engine rejects it. The Monitor shows the chat's turns with the client `openwebui`.
 - Each chat is one engine session. Open WebUI sends the chat id in the `x-sentinel-session` header, so the engine keeps one set of placeholders per chat.
+- Accounts you create are regular users, so they cannot open **Admin Settings** or point the chat at another provider. Only the admin account `admin@localhost` can. Its password is random, and it is stored in `webui/data/admin.password`, which only you can read. The demo never needs it.
 - `webui/serve.sh` sets every option through env vars. A change under **Admin Settings** is lost at the next start, so edit the script instead.
+- When `make webui` mints a new key, it restarts a running Open WebUI so the chat uses that key.
 - Open WebUI makes no model calls of its own. Title, tag, follow-up, autocomplete, and search-query generation are off, so one prompt is one turn in the Monitor. New chats keep the title **New Chat**.
 - It runs offline. It does not check for updates, download from Hugging Face, or load an embedding model, so documents attached to a chat are not read.
 - A turn that the engine blocks comes back as a chat message that starts with `[SENTINEL] Request blocked:`.
@@ -161,7 +163,7 @@ No real model followed the injection in 45 runs across seven models. `--vulnerab
 This demo shows a ChatGPT user switching to Fragmos. Marlowe Fenwick is a made-up person, and Ada Lovelace is the famous name.
 
 1. Run `make demo`. If the `cloud` model answers with an error, run `make down`, then `make demo FRAGMOS_CHAT_MODEL=local`.
-2. Open the chat at `http://127.0.0.1:8080/` in one tab and the Monitor at `http://127.0.0.1:3000/monitor` in another.
+2. Open the chat at `http://127.0.0.1:8080/` in one tab and the Monitor at `http://127.0.0.1:3000/monitor` in another. If this is your first visit to the chat, click **Sign up** and create your account with any name, email, and password. Do it before the demo starts. The sign-in lasts four weeks.
 3. In the chat, send this prompt:
 
 	```
