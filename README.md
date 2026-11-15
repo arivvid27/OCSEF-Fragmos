@@ -162,10 +162,10 @@ No real model followed the injection in 45 runs across seven models. `--vulnerab
 
 The code lives in two directories.
 
-- `fragmos/` is the Next.js web app. It serves the workspace at `/` and the Monitor at `/monitor`. `fragmos/lib/` holds the browser scrubber, and `fragmos/app/api/` holds the two server routes, `/api/chat` and `/api/models`.
+- `fragmos/` is the Next.js web app. It serves the workspace at `/`, the Monitor at `/monitor`, and the Connect page at `/connect`, where an operator creates and revokes API keys and copies the endpoint URLs and client snippets. `fragmos/lib/` holds the browser scrubber, and `fragmos/app/api/` holds the two server routes, `/api/chat` and `/api/models`.
 - `engine/` is the SENTINEL engine, a FastAPI proxy. `engine/sentinel/core/` holds detection, policy, the vault, and the egress check, with no web framework or database imports. `engine/sentinel/presidio_detector.py` is the only module that imports Presidio. `engine/policy.yaml` holds the tiers, rules, and egress lists.
 
-The Monitor never calls port 8787 directly. `fragmos/next.config.ts` forwards the Monitor's routes under `/engine/*` to `SENTINEL_URL`, which defaults to `http://127.0.0.1:8787`, and the WebSocket goes through the same rewrite. Agent traffic (`/v1/messages`, `/v1/chat/completions`) is not forwarded. [`engine/README.md`](engine/README.md#connect-an-agent-or-a-chat-app) explains gateway keys and how to connect a client.
+The Monitor and Connect pages never call port 8787 directly. `fragmos/next.config.ts` forwards their routes under `/engine/*` to `SENTINEL_URL`, which defaults to `http://127.0.0.1:8787`, and the WebSocket goes through the same rewrite. Agent traffic (`/v1/messages`, `/v1/chat/completions`) is not forwarded. [`engine/README.md`](engine/README.md#connect-an-agent-or-a-chat-app) explains gateway keys and how to connect a client.
 
 Both halves stay on this machine. The web app binds `127.0.0.1`. The engine accepts only a loopback `Host`, which stops DNS rebinding. It refuses a browser `Origin` that is not on `SENTINEL_ALLOWED_ORIGINS` (default: the web app on port 3000) for `/ws`, approvals, gateway keys, `/v1/messages`, and `/v1/chat/completions`. Every model call needs a live gateway key. Approvals and new keys also need a JSON body, so another web page cannot send one without a preflight that fails. Next.js reads `SENTINEL_URL` when `next build` or `next dev` runs. If the engine is down, the Monitor shows **The engine is not running** and retries in the background.
 

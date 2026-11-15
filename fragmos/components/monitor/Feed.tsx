@@ -44,6 +44,11 @@ function Row({ event, selected, onSelect }: { event: SentinelEvent; selected: bo
           <ActionChip action={event.headline} />
           <span className="font-mono text-[11.5px] tabular-nums text-taupe">{clock(event.created_at)}</span>
           <span className="truncate font-mono text-[11.5px] text-taupe/70">{event.session_id}</span>
+          {event.client && (
+            <span className="max-w-[8rem] shrink-0 truncate rounded-[3px] bg-panel px-1 py-px text-[10.5px] text-taupe">
+              {event.client}
+            </span>
+          )}
           <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[11px] text-taupe">
             {up ? (
               <>
