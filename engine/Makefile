@@ -1,13 +1,12 @@
 PY := .venv/bin/python
 RUN := .run
 
-.PHONY: setup data up down check test demo env venv dashboard
+.PHONY: setup data up down check test demo env venv
 
 setup:
 	test -x $(PY) || ~/.local/bin/python3.11 -m venv .venv
 	$(PY) -m pip install -r requirements.txt
 	$(PY) -c "import en_core_web_lg" 2>/dev/null || $(PY) -m spacy download en_core_web_lg
-	npm --prefix dashboard install
 
 venv:
 	@test -x $(PY) || { echo "no .venv: run make setup first"; exit 1; }
@@ -20,22 +19,9 @@ env:
 data: venv
 	$(PY) demo/generate_data.py
 
-DASHBOARD_SRC := $(shell find dashboard/src dashboard/public -type f) \
-	$(wildcard dashboard/index.html dashboard/package.json dashboard/vite.config.ts dashboard/tsconfig*.json)
+include run.mk
 
-dashboard/dist/index.html: $(DASHBOARD_SRC)
-	npm --prefix dashboard run build
-
-dashboard: dashboard/dist/index.html
-
-# $(1) name, $(2) port, $(3) command. A pidfile whose process is alive means it is already up.
-define start
-	if [ -f $(RUN)/$(1).pid ] && kill -0 $$(cat $(RUN)/$(1).pid) 2>/dev/null; then echo "$(1) already running"; \
-	elif lsof -nP -iTCP:$(2) -sTCP:LISTEN >/dev/null 2>&1; then echo "port $(2) is held by another process"; exit 1; \
-	else nohup $(3) </dev/null >$(RUN)/$(1).log 2>&1 & echo $$! >$(RUN)/$(1).pid; echo "started $(1) on :$(2)"; fi
-endef
-
-up: venv env dashboard
+up: venv env
 	@mkdir -p $(RUN)
 	@$(call start,proxy,8787,$(PY) -m sentinel)
 	@$(call start,site,8788,$(PY) demo/site_server.py)
@@ -47,10 +33,7 @@ up: venv env dashboard
 	@echo "stack is up (logs in $(RUN)/)"
 
 down:
-	@for name in proxy site stub; do \
-		if [ -f $(RUN)/$$name.pid ]; then kill $$(cat $(RUN)/$$name.pid) 2>/dev/null && echo "stopped $$name"; \
-			rm -f $(RUN)/$$name.pid; fi; \
-	done
+	@$(call stop,proxy site stub)
 
 check: venv
 	$(PY) scripts/demo_check.py
@@ -60,8 +43,8 @@ test: venv
 
 demo: data up
 	@echo
-	@echo "dashboard  http://127.0.0.1:8787/"
 	@echo "events     http://127.0.0.1:8787/api/events"
+	@echo "monitor    make demo from the repository root serves it at http://127.0.0.1:3000/monitor"
 	@echo
 	@echo "scenarios:"
 	@echo "  $(PY) demo/agent.py --scenario 1                 health note: REROUTE, then HOLD the email"

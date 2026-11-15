@@ -9,7 +9,7 @@ from typing import Any, Awaitable, Callable
 
 import yaml
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
+from fastapi.responses import JSONResponse
 
 from sentinel import wire
 from sentinel.approvals import HOLD_SECONDS, ApprovalDesk
@@ -22,7 +22,6 @@ from sentinel.store import Store
 from sentinel.upstreams import UpstreamClients, registry_from_env
 
 ROOT = Path(__file__).resolve().parent.parent
-DIST = ROOT / "dashboard" / "dist"
 
 
 class Hub:
@@ -67,7 +66,7 @@ class ShellPorts:
 
 
 def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / "policy.yaml",
-               hold_seconds: float = HOLD_SECONDS, dist: Path = DIST) -> FastAPI:
+               hold_seconds: float = HOLD_SECONDS) -> FastAPI:
     policy = load_policy(yaml.safe_load(policy_path.read_text()))
     detector = PresidioDetector()
     upstreams = registry_from_env()
@@ -140,17 +139,5 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
     @app.websocket("/ws")
     async def ws(socket: WebSocket) -> None:
         await hub.serve(socket)
-
-    root = dist.resolve()
-
-    @app.get("/{path:path}", include_in_schema=False)
-    async def dashboard(path: str) -> Response:
-        """Registered last, so every API route wins. Unknown paths get index.html."""
-        file = (root / path).resolve()
-        if path and file.is_file() and file.is_relative_to(root):
-            return FileResponse(file)
-        if not (root / "index.html").is_file():
-            return PlainTextResponse("dashboard not built: run npm --prefix dashboard run build", status_code=404)
-        return FileResponse(root / "index.html")
 
     return app
