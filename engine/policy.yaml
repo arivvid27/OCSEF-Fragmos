@@ -16,6 +16,7 @@ tiers:
   MAC_ADDRESS: 2
   PROJECT_CODENAME: 2
   LOCATION: 1
+  ORGANIZATION: 1   # below REDACT: spaCy finds the schools and clinics, and also tags "SSN" and first names
   IP_ADDRESS: 1     # below REDACT: 127.0.0.1 and private hosts are in the URLs and configs agents carry all day
   UUID: 1           # below REDACT: request, session and tool ids are UUID-shaped
   DATE_TIME: 0
