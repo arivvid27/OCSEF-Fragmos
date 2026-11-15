@@ -241,6 +241,8 @@ Workspace limits:
 - An em dash glued to the end of a key pulls the next word into the placeholder. `Use sk-ant-<key>—then rotate it` becomes `Use [API_KEY_1] rotate it`, and the vault entry includes "then".
 - The codename pattern also masks "Client ID" and similar phrases as `[PROJECT_1]`.
 - The server recheck on `/api/chat` reruns the patterns and the entropy check, not name detection.
+- A word that starts like a key prefix, such as `sk-learn` or `xoxb-`, is masked together with the words after it, up to the next punctuation. The scrubber cannot tell a key split by spaces from prose by shape, so it fails closed.
+- A key split by a space after a part that is already a whole key is masked only up to the space.
 - Names encoded in base64 are not found. Name detection reads the prompt as typed, and only the structured patterns read decoded base64.
 - Without `TRUST_FORWARDED_FOR=true`, all clients share one per-client budget on the server's Gemini key.
 
