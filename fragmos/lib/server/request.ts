@@ -1,7 +1,8 @@
 import { ALL_POLICY_IDS, isPolicyId, type PolicyId } from "../policies";
 import { KEY_PATTERN, MODEL_PATTERN, providerById, type ProviderInfo } from "../providers";
 
-export const MAX_PROMPT_CHARS = 20_000;
+const MAX_PROMPT_CHARS = 20_000;
+const MAX_BODY_BYTES = 256 * 1024;
 
 export interface ChatRequest {
   prompt: string;
@@ -27,10 +28,36 @@ export function parseCredentials(headers: Headers): { provider: ProviderInfo; us
   return { provider: provider, userKey: userKey || undefined };
 }
 
+async function readBody(request: Request): Promise<string | null> {
+  if (!request.body) {
+    return "";
+  }
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      return text + decoder.decode();
+    }
+    bytes += value.byteLength;
+    if (bytes > MAX_BODY_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+}
+
 export async function parseChatRequest(request: Request): Promise<ChatRequest | Response> {
+  const raw = await readBody(request);
+  if (raw === null) {
+    return rejected(413, "Request body is too large.");
+  }
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(raw);
   } catch {
     return rejected(400, "Request body must be JSON.");
   }

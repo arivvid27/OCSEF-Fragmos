@@ -109,6 +109,21 @@ describe("POST /api/chat", () => {
     expect((await post({ sanitizedPrompt: "word ".repeat(4001) })).status).toBe(413);
   });
 
+  it("stops reading a body that is far too large", async () => {
+    let pulled = 0;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        controller.enqueue(new Uint8Array(64 * 1024).fill(0x20));
+      },
+    });
+    const res = await POST(
+      new Request("http://localhost/api/chat", { method: "POST", body: endless, duplex: "half" } as RequestInit),
+    );
+    expect(res.status).toBe(413);
+    expect(pulled).toBeLessThan(10);
+  });
+
   it("answers 400 to an unknown provider, a bad model name or a bad key", async () => {
     expect((await post({ sanitizedPrompt: "hello" }, { "x-provider": "llama" })).status).toBe(400);
     expect((await post({ sanitizedPrompt: "hello" }, { "x-model": "bad model?" })).status).toBe(400);
