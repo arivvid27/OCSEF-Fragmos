@@ -13,6 +13,7 @@ type Props = { trailing?: ReactNode } & (
 const PAGES = [
   { href: "/", label: "Workspace" },
   { href: "/monitor", label: "Monitor" },
+  { href: "/connect", label: "Connect" },
 ] as const;
 
 export function Header({ egress, scrubMs, trailing }: Props) {

@@ -149,7 +149,7 @@ export interface Upstream {
 
 export type ServerMessage = { kind: "event"; data: SentinelEvent } | { kind: "approval"; data: Approval };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -190,9 +190,9 @@ export function parseServerMessage(text: string): ServerMessage | null {
 }
 
 // next.config.ts rewrites /engine/* to the SENTINEL engine, the WebSocket included.
-const ENGINE = "/engine";
+export const ENGINE = "/engine";
 
-async function getJson(path: string): Promise<unknown> {
+export async function getJson(path: string): Promise<unknown> {
   const res = await fetch(`${ENGINE}${path}`);
   if (!res.ok) throw new Error(`${path} answered ${res.status}`);
   return res.json();
