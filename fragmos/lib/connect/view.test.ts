@@ -19,6 +19,16 @@ describe("snippets", () => {
     }
   });
 
+  it("puts the key where each client reads its credential", () => {
+    const byId = Object.fromEntries(snippets(gateway, "fm_live_key").map((s) => [s.id, s]));
+    const code = (id: string) => (byId[id].kind === "code" ? byId[id].code : "");
+    expect(code("curl")).toContain('-H "Authorization: Bearer fm_live_key"');
+    expect(code("openai")).toMatch(/OpenAI\([^)]*api_key="fm_live_key"/);
+    expect(code("anthropic")).toMatch(/Anthropic\([^)]*api_key="fm_live_key"/);
+    const webui = byId.openwebui;
+    expect(webui.kind === "fields" && webui.fields.find((f) => f.label === "API Key")?.value).toBe("fm_live_key");
+  });
+
   it("uses a placeholder when no key is on screen", () => {
     for (const s of snippets(gateway, null)) expect(text(s), s.id).toContain(KEY_PLACEHOLDER);
   });
