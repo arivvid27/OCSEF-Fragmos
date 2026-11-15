@@ -80,7 +80,7 @@ class Agent:
     def turn(self, *content):
         self.history.append({"role": "user", "content": list(content)})
         inbound = wire.parse_request({"model": "x", "max_tokens": 500, "messages": self.history},
-                                     {"x-sentinel-session": "s"}, frozenset(UPSTREAMS))
+                                     {"x-sentinel-session": "s"}, frozenset(UPSTREAMS), client="test")
         ctx = TurnContext(UPSTREAMS, self.ports, POLICY, self.detector, self.vault)
         reply = wire.reply_to_json(asyncio.run(run_turn(inbound, ctx)))
         self.history.append({"role": "assistant", "content": reply["content"]})

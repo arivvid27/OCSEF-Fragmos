@@ -1,4 +1,8 @@
-"""The only module that knows Anthropic JSON. Parse once at the edge, serialize once on the way out."""
+"""The only module that knows wire JSON. Parse once at the edge, serialize once on the way out.
+
+The core speaks Anthropic. The OpenAI door parses a chat completion straight into the same Inbound and renders the
+same Reply, so nothing past this module knows that door exists.
+"""
 
 from __future__ import annotations
 
@@ -68,18 +72,14 @@ def _system(raw: Any) -> tuple[Text, ...]:
     return blocks  # type: ignore[return-value]
 
 
-def parse_request(body: Any, headers: Mapping[str, str], known_upstreams: frozenset[str]) -> Inbound:
+def parse_request(body: Any, headers: Mapping[str, str], known_upstreams: frozenset[str], client: str) -> Inbound:
     """headers must be case-insensitive or lower-cased. The agent's model, key, and sampling knobs are ignored."""
     if not isinstance(body, dict):
         raise WireError("request body must be a JSON object")
     if body.get("stream"):
         raise WireError("streaming is not supported by SENTINEL; send stream=false")
-    upstream_id = headers.get("x-sentinel-upstream") or "cloud"
-    if upstream_id not in known_upstreams:
-        raise WireError(f"unknown x-sentinel-upstream {upstream_id!r}")
-    max_tokens = body.get("max_tokens")
-    if not isinstance(max_tokens, int) or isinstance(max_tokens, bool):
-        raise WireError("max_tokens must be an integer")
+    upstream_id = _routed_upstream(headers, known_upstreams)
+    max_tokens = _int(body.get("max_tokens"), "max_tokens")
     messages = body.get("messages")
     if not isinstance(messages, list) or not messages:
         raise WireError("messages must be a non-empty list")
@@ -99,6 +99,7 @@ def parse_request(body: Any, headers: Mapping[str, str], known_upstreams: frozen
         raise WireError(f"malformed block: missing {e}") from e
     return Inbound(
         session_id=headers.get("x-sentinel-session") or "default",
+        client=client,
         upstream_id=upstream_id,
         conversation=Conversation(system, parsed),
         params=Params(
@@ -108,6 +109,79 @@ def parse_request(body: Any, headers: Mapping[str, str], known_upstreams: frozen
             anthropic_version=headers.get("anthropic-version"),
             anthropic_beta=headers.get("anthropic-beta"),
         ),
+    )
+
+
+def _routed_upstream(headers: Mapping[str, str], known_upstreams: frozenset[str]) -> str:
+    upstream_id = headers.get("x-sentinel-upstream") or "cloud"
+    if upstream_id not in known_upstreams:
+        raise WireError(f"unknown x-sentinel-upstream {upstream_id!r}")
+    return upstream_id
+
+
+def _int(value: Any, name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise WireError(f"{name} must be an integer")
+    return value
+
+
+OPENAI_MAX_TOKENS = 4096  # Anthropic needs a cap and OpenAI clients often send none
+OPENAI_UNSUPPORTED = "is not supported on /v1/chat/completions yet; send text messages only"
+
+
+def _openai_content(raw: Any, role: str) -> tuple[Text, ...]:
+    """A string or an array of text parts. Every other part type (image_url, input_audio, file) is refused. Empty
+    text is dropped: Anthropic refuses an empty text block, and chat UIs keep empty replies in their history."""
+    if isinstance(raw, str):
+        raw = [{"type": "text", "text": raw}]
+    if not isinstance(raw, list):
+        raise WireError(f"{role} content must be a string or a list of content parts")
+    for part in raw:
+        kind = part.get("type") if isinstance(part, dict) else None
+        if kind != "text" or not isinstance(part.get("text"), str):
+            raise WireError(f"content part {kind!r} {OPENAI_UNSUPPORTED}")
+    return tuple(Text(part["text"]) for part in raw if part["text"])
+
+
+def parse_openai_request(body: Any, headers: Mapping[str, str], known_upstreams: frozenset[str],
+                         client: str) -> Inbound:
+    """An OpenAI chat completion as the same Inbound parse_request builds. system and developer messages become the
+    system prompt. model picks an upstream by id; any other model routes the way the Anthropic door does."""
+    if not isinstance(body, dict):
+        raise WireError("request body must be a JSON object")
+    messages = body.get("messages")
+    if not isinstance(messages, list) or not messages:
+        raise WireError("messages must be a non-empty list")
+    if body.get("tools") or body.get("functions"):
+        raise WireError(f"tools {OPENAI_UNSUPPORTED}")
+    system: list[Text] = []
+    parsed: list[Message] = []
+    for m in messages:
+        if not isinstance(m, dict):
+            raise WireError("each message must be an object")
+        role = m.get("role")
+        if role in ("tool", "function") or m.get("tool_calls") or m.get("function_call"):
+            raise WireError(f"tool calls {OPENAI_UNSUPPORTED}")
+        if role in ("system", "developer"):
+            system += _openai_content(m.get("content"), role)
+        elif role in ("user", "assistant"):
+            if content := _openai_content(m.get("content"), role):
+                parsed.append(Message(role, content))
+        else:
+            raise WireError("each message needs role system, developer, user or assistant")
+    if not parsed:
+        raise WireError("messages need at least one user or assistant message")
+    model = body.get("model")
+    picked = isinstance(model, str) and model in known_upstreams
+    upstream_id = model if picked else _routed_upstream(headers, known_upstreams)
+    cap = next((body[k] for k in ("max_completion_tokens", "max_tokens") if body.get(k) is not None),
+               OPENAI_MAX_TOKENS)
+    return Inbound(
+        session_id=headers.get("x-sentinel-session") or "default",
+        client=client,
+        upstream_id=upstream_id,
+        conversation=Conversation(tuple(system), tuple(parsed)),
+        params=Params(max_tokens=_int(cap, "max_tokens")),
     )
 
 
@@ -171,6 +245,49 @@ def reply_to_json(reply: Reply) -> dict[str, Any]:
         "usage": dict(reply.usage),
         **reply.extra,
     }
+
+
+OPENAI_FINISH = {"end_turn": "stop", "stop_sequence": "stop", "max_tokens": "length", "refusal": "content_filter"}
+
+
+def openai_error(message: str, code: str | None = None) -> dict[str, Any]:
+    return {"error": {"message": message, "type": "invalid_request_error", "param": None, "code": code}}
+
+
+def upstream_error_to_openai(body: Any) -> dict[str, Any]:
+    """An upstream's Anthropic error body, reshaped so an OpenAI client shows its message."""
+    error = body.get("error") if isinstance(body, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    return openai_error(message if isinstance(message, str) else f"upstream error: {body}")
+
+
+def _openai_parts(reply: Reply) -> tuple[str, str, dict[str, int] | None]:
+    """(content, finish_reason, usage). Thinking and other opaque blocks are not part of the answer."""
+    content = "\n\n".join(b.text for b in reply.blocks if isinstance(b, Text) and b.text)
+    prompt, completion = reply.usage.get("input_tokens"), reply.usage.get("output_tokens")
+    usage = ({"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": prompt + completion}
+             if isinstance(prompt, int) and isinstance(completion, int) else None)
+    return content, OPENAI_FINISH.get(reply.stop_reason or "", "stop"), usage
+
+
+def reply_to_openai(reply: Reply, created: int) -> dict[str, Any]:
+    content, finish, usage = _openai_parts(reply)
+    out = {"id": reply.id, "object": "chat.completion", "created": created, "model": reply.model,
+           "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": finish}]}
+    return {**out, "usage": usage} if usage else out
+
+
+def reply_to_openai_chunks(reply: Reply, created: int) -> list[dict[str, Any]]:
+    """A role chunk, the whole answer as one content chunk, then the finish_reason chunk, which carries usage."""
+    content, finish, usage = _openai_parts(reply)
+    head = {"id": reply.id, "object": "chat.completion.chunk", "created": created, "model": reply.model}
+
+    def chunk(delta: dict[str, str], finish_reason: str | None = None) -> dict[str, Any]:
+        return {**head, "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}]}
+
+    last = chunk({}, finish)
+    return [chunk({"role": "assistant", "content": ""}), chunk({"content": content}),
+            {**last, "usage": usage} if usage else last]
 
 
 def _plain(value: Any) -> Any:
