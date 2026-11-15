@@ -62,7 +62,7 @@ ws.onmessage = ({ data }) => {
 // modal:      approvals with status "pending" (countdown from expires_at)
 ```
 
-On load it calls `GET /api/events?limit=200` and `GET /api/approvals` once, then lives on `/ws`.
+On load it calls `GET /api/events?limit=200` and `GET /api/approvals` once, then lives on `/ws`. The dashboard is now the web app's Monitor page, `fragmos/components/monitor/`, at `http://127.0.0.1:3000/monitor`. It reaches these endpoints through the `/engine/*` rewrite in `fragmos/next.config.ts`.
 
 ## Shape
 
@@ -80,12 +80,12 @@ sentinel/
     policy.py           # load_policy(dict), the shared When matcher, decide(), check_egress(), apply_egress()
     vault.py            # Vault: append-only value<->placeholder map, mask(), unmask()
     turn.py             # Turn, Ports, run_turn(), event_of(), hops(): the lifecycle spine
-  presidio_detector.py  # the one Detector impl: Presidio + HEALTH/SECRET/EMAIL recognizers, lru_cache
+  presidio_detector.py  # the one Detector impl: Presidio + HEALTH/SECRET/EMAIL recognizers, the patterns and entropy check ported from Fragmos, lru_cache
   wire.py               # the only module that knows Anthropic JSON: parse_request, to_upstream, reply_from_sdk, reply_to_json
   upstreams.py          # registry from env, one AsyncAnthropic per upstream, call()
   approvals.py          # ApprovalDesk: the HOLD wait, 60 s expiry, first-writer-wins resolve
   store.py              # SQLite: events upsert, approvals rows, stats
-  app.py                # FastAPI routes, WS hub, Sessions (vaults), wires Ports; serves dashboard/dist at /
+  app.py                # FastAPI routes, WS hub, Sessions (vaults), wires Ports; serves no UI
 demo/sim_upstream.py    # the scripted attacker: a tiny Anthropic-compatible /v1/messages on :8789
 ```
 
