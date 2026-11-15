@@ -134,6 +134,50 @@ describe("scrubText on disguised values", () => {
   });
 });
 
+describe("scrubText on disguised presets", () => {
+  function sprinkled(text: string, seed: number): string {
+    const marks = ["\u200B", "\u00AD", "\u2060", "\uFEFF"];
+    let state = seed;
+    let out = "";
+    for (const char of text) {
+      out += char;
+      state = (state * 1664525 + 1013904223) >>> 0;
+      if (state % 25 === 0) {
+        out += marks[(state >>> 8) % marks.length];
+      }
+    }
+    return out;
+  }
+
+  const DISGUISES: Record<string, (text: string) => string> = {
+    "non-breaking hyphens": (text) => text.replaceAll("-", "\u2011"),
+    "en dashes": (text) => text.replaceAll("-", "\u2013"),
+    "minus signs": (text) => text.replaceAll("-", "\u2212"),
+    "non-breaking spaces": (text) => text.replaceAll(" ", "\u00A0"),
+    "fullwidth digits": (text) => text.replace(/\d/g, (d) => String.fromCharCode(0xff10 + Number(d))),
+    "each line in base64": (text) => text.split("\n").map((line) => (line.trim() ? b64(line) : line)).join("\n"),
+    "invisible characters, first sprinkle": (text) => sprinkled(text, 7),
+    "invisible characters, second sprinkle": (text) => sprinkled(text, 23),
+    "invisible characters, third sprinkle": (text) => sprinkled(text, 36),
+  };
+
+  for (const p of PRESETS) {
+    for (const [name, disguise] of Object.entries(DISGUISES)) {
+      it(`${p.id} with ${name} scrubs to text the server recheck accepts`, () => {
+        for (const options of [ALL_ON, ALL_OFF]) {
+          const { sanitized } = scrubText(disguise(p.text), options);
+          expect(containsResidualPII(sanitized, options.disabled)).toBe(false);
+        }
+      });
+    }
+  }
+
+  it("leaves no tail of a secret that an invisible character splits", () => {
+    const text = "aws_secret_access_key = wJalrXUtnFEMI/K\uFEFF7MDENG/bP\uFEFFxRfiCYEXAMPLEKEY\nSTRIPE_KEY=sk\u200B_test_51Nex\uFEFFampleFakeKey0099";
+    expect(scrubText(text).sanitized).toBe("[AWS_SECRET_KEY_1]\nSTRIPE_KEY=[STRIPE_KEY_1]");
+  });
+});
+
 describe("scrubText options", () => {
   it("masks a card only when it passes Luhn and the pack is on", () => {
     expect(scrubText("card 4111 1111 1111 1111").sanitized).toBe("card [CREDIT_CARD_1]");

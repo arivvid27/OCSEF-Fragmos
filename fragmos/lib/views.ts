@@ -6,9 +6,9 @@ export interface View {
 const NON_ASCII = /[\u0080-\uFFFF]/;
 const INVISIBLE = /\p{Cf}/u;
 const DASH = /\p{Pd}|\u2212/u;
-const SPACE = /\p{Zs}|[\t_]/u;
+const SPACE = /\p{Zs}|\t/u;
 const SPACED_OUT = /(?<!\S)\S(?: \S){5,}/g;
-const SSN_GROUPS = /\b(\d{3})[ .-](\d{2})[ .-](\d{4})\b/g;
+const SSN_GROUPS = /(?<!\d)(\d{3})[ ._-](\d{2})[ ._-](\d{4})(?!\d)/g;
 const BASE64_RUN = /[A-Za-z0-9+/_-]{12,}={0,2}/g;
 const PRINTABLE = /^(?: |[^\p{C}\p{Z}])*$/u;
 const utf8 = new TextDecoder("utf-8", { fatal: true });
@@ -27,7 +27,7 @@ function pick(view: View, keep: number[]): View {
 
 function fold(text: string): View {
   if (!NON_ASCII.test(text)) {
-    return plain(text.replace(/[\t_]/g, " "));
+    return plain(text.replace(/\t/g, " "));
   }
   let out = "";
   const starts: number[] = [];

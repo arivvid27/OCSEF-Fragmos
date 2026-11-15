@@ -40,6 +40,14 @@ describe("detectSensitive", () => {
     expect(found(`Deploy key: ${form}`)).toEqual(["API_KEY:" + form]);
   });
 
+  it("finds keys whose shape has underscores when an invisible character splits them", () => {
+    expect(found("STRIPE_KEY=sk_test_\u206051Nexampl\u00ADeFakeKey0099")).toEqual([
+      "STRIPE_KEY:sk_test_\u206051Nexampl\u00ADeFakeKey0099",
+    ]);
+    const assignment = "aws_secret_access_key = wJalrXUtnFEMI/K\uFEFF7MDENG/bP\uFEFFxRfiCYEXAMPLEKEY";
+    expect(found(assignment)).toEqual(["AWS_SECRET_KEY:" + assignment]);
+  });
+
   it("finds a phone number and an email written with non-breaking hyphens", () => {
     expect(found("Call (949) 555\u20110142 or write elena@northwood\u2011usd.org")).toEqual([
       "PHONE:(949) 555\u20110142",
@@ -65,8 +73,19 @@ describe("containsResidualPII", () => {
   });
 
   it("does not read a placeholder as the value of an assignment", () => {
-    expect(containsResidualPII("The wifi pwd: [SUBJECT_1] set it.")).toBe(false);
+    expect(containsResidualPII("The wifi pwd: [SUBJECT_1] changed it.")).toBe(false);
     expect(containsResidualPII("api_key = [GOOGLE_API_KEY_1]")).toBe(false);
+  });
+
+  it("does not read past a placeholder to the words after it", () => {
+    expect(containsResidualPII("GEMINI_API_KEY=[GOOGLE_API_KEY_1]\nNEXT_SETTING=enabled")).toBe(false);
+    expect(containsResidualPII("Authorization: Bearer [API_KEY_1] internationalization")).toBe(false);
+    expect(containsResidualPII("Project [SUBJECT_1] Falcon")).toBe(false);
+  });
+
+  it("still catches a value with a placeholder attached to it", () => {
+    expect(containsResidualPII("password=hunter2hunter2[SUBJECT_1]")).toBe(true);
+    expect(containsResidualPII("[SUBJECT_1]531-62-4408[SUBJECT_2]")).toBe(true);
   });
 
   it("still catches a value dressed up as a placeholder", () => {

@@ -10,6 +10,7 @@ export interface Detection {
 }
 
 const PLACEHOLDER = new RegExp("\\[(?:" + Object.keys(CATEGORY_META).join("|") + ")_\\d+\\]", "g");
+const NEVER_PART_OF_A_VALUE = ";";
 
 export function overlaps(spans: Detection[], start: number, end: number): boolean {
   for (let i = 0; i < spans.length; i++) {
@@ -78,7 +79,7 @@ export function detectSensitive(text: string, disabled: ReadonlySet<Category> = 
 }
 
 export function maskPlaceholders(text: string): string {
-  return text.replace(PLACEHOLDER, (token) => " ".repeat(token.length));
+  return text.replace(PLACEHOLDER, (token) => NEVER_PART_OF_A_VALUE.repeat(token.length));
 }
 
 export function containsResidualPII(sanitized: string, disabled?: ReadonlySet<Category>): boolean {

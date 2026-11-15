@@ -57,6 +57,10 @@ describe("normalized", () => {
     expect(sourceOf(text, normalized(text), SSN)).toBe(form);
   });
 
+  it("keeps underscores, which key shapes depend on", () => {
+    expect(normalized("sk_live_\u200B51Nexample").text).toBe("sk_live_51Nexample");
+  });
+
   it("leaves a short run of single letters alone", () => {
     const text = "Options a b c d are open to Marcus";
     expect(normalized(text).text).toBe(text);
