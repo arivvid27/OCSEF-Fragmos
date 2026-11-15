@@ -6,17 +6,20 @@ import asyncio
 import dataclasses
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable
+from urllib.parse import urlsplit
 
 import yaml
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from sentinel import wire
 from sentinel.approvals import HOLD_SECONDS, ApprovalDesk
-from sentinel.core.model import ApprovalRef, ApprovalStatus, Conversation, Event, HoldSubject, Params, Reply, Upstream
+from sentinel.core.model import (ApprovalRef, ApprovalStatus, Conversation, Event, HoldSubject, Inbound, Params,
+                                 Reply, Upstream)
 from sentinel.core.policy import load_policy
 from sentinel.core.turn import TurnContext, UpstreamError, run_turn
 from sentinel.core.vault import Vault
@@ -27,6 +30,7 @@ from sentinel.upstreams import UpstreamClients, registry_from_env
 ROOT = Path(__file__).resolve().parent.parent
 MONITOR_ORIGINS = "http://127.0.0.1:3000,http://localhost:3000"
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
+PUBLIC_URL = "http://127.0.0.1:8787"
 KEY_NAME_MAX = 100
 NO_KEY = ("a valid Fragmos gateway key is required: create one in the dashboard or with "
           "python -m sentinel keys create <name>")
@@ -95,8 +99,11 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
     ports = ShellPorts(clients, store, hub, desk)
     vaults: dict[str, Vault] = {}  # by x-sentinel-session
     origins = {o.strip() for o in (os.environ.get("SENTINEL_ALLOWED_ORIGINS") or MONITOR_ORIGINS).split(",")} - {""}
+    public = (os.environ.get("SENTINEL_PUBLIC_URL") or PUBLIC_URL).rstrip("/")
+    models = [u.id for u in upstreams.values() if not u.simulated]  # attacker-sim exists for the scripted demo
     app = FastAPI(title="SENTINEL")
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(hosts))  # a rebound DNS name is not loopback
+    # A rebound DNS name is not loopback. The advertised public host is let in, so a client in a container can call.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=[*hosts, urlsplit(public).hostname or hosts[0]])
 
     def foreign(origin: str | None) -> bool:
         """An agent or curl sends no Origin; a browser always does, and only the monitor's may reach in."""
@@ -116,6 +123,10 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
             return JSONResponse({"error": "content-type must be application/json"}, status_code=415)
         return None
 
+    async def turn(inbound: Inbound) -> Reply:
+        return await run_turn(inbound, TurnContext(upstreams, ports, policy, detector,
+                                                   vaults.setdefault(inbound.session_id, Vault())))
+
     @app.post("/v1/messages")
     async def messages(request: Request) -> JSONResponse:
         if foreign(request.headers.get("origin")):
@@ -127,11 +138,44 @@ def create_app(db_path: Path = ROOT / "sentinel.db", policy_path: Path = ROOT / 
         except (wire.WireError, json.JSONDecodeError) as e:
             return JSONResponse(wire.error_body("invalid_request_error", str(e)), status_code=400)
         try:
-            vault = vaults.setdefault(inbound.session_id, Vault())
-            reply = await run_turn(inbound, TurnContext(upstreams, ports, policy, detector, vault))
+            reply = await turn(inbound)
         except UpstreamError as e:
             return JSONResponse(e.body, status_code=e.status)
         return JSONResponse(wire.reply_to_json(reply))
+
+    @app.post("/v1/chat/completions", response_model=None)
+    async def chat_completions(request: Request) -> JSONResponse | StreamingResponse:
+        """A blocked or denied turn answers with the [SENTINEL] text as a normal assistant message, as on /v1/messages,
+        so Open WebUI shows it in the chat. A held turn waits here for the Monitor's verdict before answering."""
+        if foreign(request.headers.get("origin")):
+            return JSONResponse(wire.openai_error("origin not allowed"), status_code=403)
+        if (client := client_of(request)) is None:
+            return JSONResponse(wire.openai_error(NO_KEY, "invalid_api_key"), status_code=401)
+        try:
+            body = await request.json()
+            inbound = wire.parse_openai_request(body, request.headers, frozenset(upstreams), client)
+        except (wire.WireError, json.JSONDecodeError) as e:
+            return JSONResponse(wire.openai_error(str(e)), status_code=400)
+        try:
+            reply = await turn(inbound)
+        except UpstreamError as e:
+            return JSONResponse(wire.upstream_error_to_openai(e.body), status_code=e.status)
+        created = int(time.time())
+        if body.get("stream") is not True:
+            return JSONResponse(wire.reply_to_openai(reply, created))
+        lines = [f"data: {json.dumps(c)}\n\n" for c in wire.reply_to_openai_chunks(reply, created)]
+        return StreamingResponse(iter([*lines, "data: [DONE]\n\n"]), media_type="text/event-stream")
+
+    @app.get("/v1/models")
+    async def list_models(request: Request) -> JSONResponse:
+        if client_of(request) is None:
+            return JSONResponse(wire.openai_error(NO_KEY, "invalid_api_key"), status_code=401)
+        return JSONResponse({"object": "list", "data": [{"id": m, "object": "model", "created": 0,
+                                                         "owned_by": "fragmos"} for m in models]})
+
+    @app.get("/api/gateway")
+    async def gateway() -> dict[str, Any]:
+        return {"openai_base_url": f"{public}/v1", "anthropic_base_url": public, "models": models}
 
     @app.get("/api/events")
     async def events(limit: int = 200, session: str | None = None) -> list[dict[str, Any]]:

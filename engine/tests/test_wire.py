@@ -157,3 +157,61 @@ def test_every_value_sent_upstream_is_a_scanned_leaf():
 
     assert {v for v, scanned in scalars(sent) if v not in scanned and v not in PROTOCOL} == set()
     assert "files-api-2025-04-14" in texts
+
+
+def chat(**overrides):
+    return {"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}], **overrides}
+
+
+def openai_upstream_body(body, headers=None):
+    inbound = wire.parse_openai_request(body, headers or {}, UPSTREAMS, client="test")
+    return inbound.upstream_id, wire.to_upstream(inbound.conversation, inbound.params)
+
+
+def test_an_openai_chat_becomes_the_anthropic_request_the_core_forwards():
+    body = chat(messages=[
+        {"role": "system", "content": "Be brief."},
+        {"role": "developer", "content": [{"type": "text", "text": "Answer in English."}]},
+        {"role": "user", "content": [{"type": "text", "text": "Hi,"}, {"type": "text", "text": "who are you?"}]},
+        {"role": "assistant", "content": "An assistant."},
+        {"role": "user", "content": "Thanks."},
+    ], max_tokens=300, temperature=0.3, top_p=0.5, stream=True, stream_options={"include_usage": True})
+    upstream, sent = openai_upstream_body(body)
+    assert upstream == "cloud"
+    assert sent == {
+        "max_tokens": 300,
+        "temperature": 0.3,
+        "system": [{"type": "text", "text": "Be brief."}, {"type": "text", "text": "Answer in English."}],
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "Hi,"}, {"type": "text", "text": "who are you?"}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "An assistant."}]},
+            {"role": "user", "content": [{"type": "text", "text": "Thanks."}]},
+        ],
+    }
+
+
+def test_openai_token_caps_prefer_max_completion_tokens_and_default_when_absent():
+    assert openai_upstream_body(chat(max_tokens=10, max_completion_tokens=20))[1]["max_tokens"] == 20
+    assert openai_upstream_body(chat(max_tokens=10, max_completion_tokens=None))[1]["max_tokens"] == 10
+    assert openai_upstream_body(chat())[1]["max_tokens"] == wire.OPENAI_MAX_TOKENS
+
+
+def test_the_openai_model_picks_an_upstream_and_anything_else_routes_like_the_anthropic_door():
+    assert openai_upstream_body(chat(model="local"))[0] == "local"
+    assert openai_upstream_body(chat(model="gpt-4o"))[0] == "cloud"
+    assert openai_upstream_body(chat(model="gpt-4o"), {"x-sentinel-upstream": "local"})[0] == "local"
+
+
+@pytest.mark.parametrize("body", [
+    chat(messages=[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64,AA"}}]}]),
+    chat(tools=[{"type": "function", "function": {"name": "f"}}]),
+    chat(messages=[{"role": "user", "content": "hi"}, {"role": "assistant", "content": None, "tool_calls": [{"id": "c"}]}]),
+    chat(messages=[{"role": "tool", "tool_call_id": "c", "content": "42"}]),
+    chat(messages=[{"role": "system", "content": "only a system prompt"}]),
+    chat(messages=[]),
+    chat(max_tokens="many"),
+    chat(temperature="warm"),
+], ids=["image", "tools", "tool-calls", "tool-role", "system-only", "empty", "max-tokens", "temperature"])
+def test_openai_requests_the_core_cannot_carry_yet_are_refused(body):
+    with pytest.raises(wire.WireError):
+        wire.parse_openai_request(body, {}, UPSTREAMS, client="test")

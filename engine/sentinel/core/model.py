@@ -208,13 +208,14 @@ class Conversation:
 
 @dataclass(frozen=True)
 class Params:
-    """The request knobs that survive the edge. Everything else the agent sends is dropped in wire.parse_request."""
+    """The request knobs that survive the edge. Everything else the agent sends is dropped at the wire.py edge."""
 
     max_tokens: int
     tools: tuple[JSON, ...] = ()
     stop_sequences: tuple[str, ...] = ()
     anthropic_version: str | None = None  # wire.parse_request admits only a date, which cannot carry data
     anthropic_beta: str | None = None
+    temperature: float | None = None  # only the OpenAI door forwards it; parse_request drops sampling knobs
 
     def leaves(self) -> Iterator[Leaf]:
         """Every forwarded knob that can carry text. All read-only: SENTINEL never rewrites a tool definition."""
@@ -225,6 +226,8 @@ class Params:
             yield Leaf(("stop_sequences", i), s, False)
         if self.anthropic_beta:
             yield Leaf(("anthropic_beta",), self.anthropic_beta, False, identifier=True)
+        if self.temperature is not None:
+            yield Leaf(("temperature",), str(self.temperature), False, identifier=True)
 
 
 @dataclass(frozen=True)
