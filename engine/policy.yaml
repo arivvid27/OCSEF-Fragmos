@@ -1,14 +1,23 @@
 tiers:
   SECRET: 3
   US_SSN: 3
+  UK_NINO: 3
   HEALTH: 3
   CREDIT_CARD: 3
   US_PASSPORT: 3
   FINANCIAL: 2
+  IBAN_CODE: 2
+  CRYPTO: 2
+  US_EIN: 2
   PERSON: 2
+  DATE_OF_BIRTH: 2
   PHONE_NUMBER: 2
   EMAIL_ADDRESS: 2
+  MAC_ADDRESS: 2
+  PROJECT_CODENAME: 2
   LOCATION: 1
+  IP_ADDRESS: 1     # below REDACT: 127.0.0.1 and private hosts are in the URLs and configs agents carry all day
+  UUID: 1           # below REDACT: request, session and tool ids are UUID-shaped
   DATE_TIME: 0
 
 rules:            # first match wins
@@ -26,6 +35,6 @@ rules:            # first match wins
 
 egress:
   allowed_domains: [localhost, 127.0.0.1, demo.sentinel.local]
-  block_if_payload_has: [SECRET, US_SSN, CREDIT_CARD]
-  hold_if_payload_has: [PERSON, EMAIL_ADDRESS, PHONE_NUMBER, HEALTH]
+  block_if_payload_has: [SECRET, US_SSN, UK_NINO, CREDIT_CARD]
+  hold_if_payload_has: [PERSON, EMAIL_ADDRESS, PHONE_NUMBER, HEALTH, DATE_OF_BIRTH, IBAN_CODE, CRYPTO, US_EIN]
   external_tools: [send_email, http_post, web_fetch]

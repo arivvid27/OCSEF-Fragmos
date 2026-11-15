@@ -9,7 +9,7 @@ from functools import lru_cache
 
 from presidio_analyzer import AnalyzerEngine, EntityRecognizer, Pattern, PatternRecognizer, RecognizerResult
 from presidio_analyzer.nlp_engine import NlpEngineProvider
-from presidio_analyzer.predefined_recognizers import SpacyRecognizer
+from presidio_analyzer.predefined_recognizers import CreditCardRecognizer, SpacyRecognizer
 
 from sentinel.core.detect import SHAPED, SURE
 from sentinel.core.model import Span
@@ -50,12 +50,26 @@ SECRET_PATTERNS = [
             r"|client[_-]?secret|private[_-]?key)[A-Za-z0-9_.-]*[\"']?\s*[:=]\s*[\"']?[^\s\"',;]{6,}", CONTEXT),
 ]
 
-# Entity type -> the patterns Presidio lacks for it.
+# Entity type -> the patterns Presidio lacks for it. IBAN_CODE, IP_ADDRESS, MAC_ADDRESS and UUID need none.
 PATTERNS = {
     "SECRET": SECRET_PATTERNS,
     # Presidio's own email recognizer misses @demo.sentinel.local (P3).
     "EMAIL_ADDRESS": [Pattern("email", r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b", 0.9)],
+    # Presidio reads only Bitcoin addresses whose checksum holds.
+    "CRYPTO": [Pattern("wallet", r"\b(?:0x[a-fA-F0-9]{40}|bc1[a-z0-9]{25,60})\b", 0.6)],
+    "US_EIN": [Pattern("ein", r"(?<!\d)\d{2}-\d{7}(?!\d)", 0.5)],
+    # Presidio's UkNinoRecognizer also takes lowercase, which reads "at 10 20 30 a" as a number.
+    "UK_NINO": [Pattern("nino", r"\b[A-CEGHJ-PR-TW-Z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-D]\b", 0.5)],
+    "DATE_OF_BIRTH": [Pattern("dob", r"\b(?i:DOB|D\.O\.B\.?|Date\s+of\s+Birth|Birth\s*date)\s*[-:#]?\s*"
+                                     r"(?:\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{4}-\d{2}-\d{2})\b", 0.6)],
+    "PROJECT_CODENAME": [Pattern(
+        "codename", r"\b(?:Project|Operation|Initiative|Codename|Client|Account|Deal)\s+"
+                    r"(?!(?:Number|Manager|Services|Team|Executive|Name|Information|Details|Summary|Representative"
+                    r"|Settings)\b)[A-Z][A-Za-z0-9_-]{1,24}(?:\s+[A-Z][A-Za-z0-9_-]{1,24})?\b", 0.5)],
 }
+
+# Presidio's card pattern wants a first digit of 1, 3, 4, 5 or 6, which misses Mastercard's 2-series.
+CARD = Pattern("card_16", r"(?<![\d-])(?:\d{4}[ -]?){3}\d{4}(?![\d-])", 0.3)
 
 # Presidio's default flags include IGNORECASE, which would let AKIA[0-9A-Z] match lowercase noise.
 CASE_SENSITIVE = re.DOTALL | re.MULTILINE
@@ -112,6 +126,7 @@ class PresidioDetector:
         }).create_engine()
         self._engine = AnalyzerEngine(nlp_engine=nlp, supported_languages=["en"])
         added = [PatternRecognizer(supported_entity="HEALTH", deny_list=MEDICAL_TERMS),
+                 CreditCardRecognizer(patterns=[CARD]),  # for its Luhn check
                  EntropyRecognizer(),
                  *(PatternRecognizer(supported_entity=entity, patterns=patterns, global_regex_flags=CASE_SENSITIVE)
                    for entity, patterns in PATTERNS.items())]
