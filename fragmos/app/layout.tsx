@@ -21,7 +21,7 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Fragmós — Zero-Trust Institutional AI Barrier",
+  title: "Fragmós",
   description:
     "Scrub sensitive student and patient data in your browser before it ever reaches an AI model.",
 };
