@@ -2,7 +2,8 @@ import type { Gateway } from "./api";
 
 export const KEY_PLACEHOLDER = "YOUR_FRAGMOS_KEY";
 
-export const CHAT_APP_URL = "http://127.0.0.1:8080";
+// Next.js inlines NEXT_PUBLIC_ values when `next dev` or `next build` runs.
+export const CHAT_APP_URL = process.env.NEXT_PUBLIC_CHAT_URL || "http://127.0.0.1:8080";
 
 export type SnippetId = "curl" | "openai" | "anthropic" | "openwebui";
 

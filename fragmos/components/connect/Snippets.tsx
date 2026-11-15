@@ -84,7 +84,7 @@ export function Snippets({ gateway, apiKey }: { gateway: Gateway; apiKey: string
               className="mt-2 inline-flex items-center gap-2 self-start rounded-lg bg-forest px-4 py-2 text-[13px] font-semibold text-white transition-[background-color,transform] duration-300 ease-ios hover:bg-forest-deep active:scale-[0.98]"
             >
               Open the chat app
-              <span className="font-mono text-[11.5px] font-normal text-white/70">{CHAT_APP_URL.replace("http://", "")}</span>
+              <span className="font-mono text-[11.5px] font-normal text-white/70">{CHAT_APP_URL.replace(/^https?:\/\//, "")}</span>
             </a>
           </div>
         )}
