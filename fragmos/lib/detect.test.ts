@@ -4,6 +4,7 @@ import { disabledCategories } from "./policies";
 import { STRUCTURED_PATTERNS } from "./patterns";
 import { PRESETS } from "./presets";
 import { DISGUISED_SSNS, KEY, SSN, b64 } from "./test-fixtures";
+import { decoded } from "./views";
 
 function found(text: string): string[] {
   return detectSensitive(text)
@@ -84,7 +85,7 @@ describe("detectSensitive", () => {
     expect(found("SSN 531-62\u0001-4408 on file")).toEqual(["SSN:531-62\u0001-4408"]);
   });
 
-  it("reads nothing out of base64 that is not hiding a value", () => {
+  it("finds nothing in base64-looking text that hides no value", () => {
     const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let state = 20261115;
     function next(below: number): number {
@@ -104,7 +105,16 @@ describe("detectSensitive", () => {
     }
     runs.push(..."internationalization organization-wide src/components/monitor/EventDetail node_modules/next/dist".split(" "));
 
-    for (const run of runs) {
+    const decodable = [
+      b64("frame\u0000\u0001 header v2\u0000"),
+      b64("\u0002meeting notes for Friday\u0003"),
+      Buffer.from("hello world", "utf16le").toString("base64"),
+    ];
+    for (const run of decodable) {
+      expect(decoded(run), run).not.toEqual([]);
+    }
+
+    for (const run of runs.concat(decodable)) {
       const direct = STRUCTURED_PATTERNS.filter((p) => run.match(p.re)).map((p) => p.category);
       const all = detectSensitive(run).map((d) => d.category).filter((c) => c !== "HIGH_ENTROPY_SECRET");
       expect(direct, run).toEqual(expect.arrayContaining(all));
