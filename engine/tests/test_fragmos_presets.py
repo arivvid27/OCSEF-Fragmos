@@ -50,11 +50,11 @@ def test_the_leaked_config_never_reaches_the_cloud(presidio):
 
 
 @pytest.mark.parametrize("preset, expected", [
-    ("ferpa", {("PERSON", "Marcus Vance"), ("PERSON", "Elena Rostova"), ("PERSON", "Sarah Vance"),
+    ("ferpa", {("PERSON", "Marcus Vance"), ("PERSON", "Dr. Elena Rostova"), ("PERSON", "Sarah Vance"),
                ("EMAIL_ADDRESS", "elena.rostova@northwood-usd.org"), ("EMAIL_ADDRESS", "svance.family@gmail.com"),
                ("PHONE_NUMBER", "(949) 555-0142"), ("PHONE_NUMBER", "(949) 555-0187"),
                ("ORGANIZATION", "Northwood High School"), ("ORGANIZATION", "Irvine Unified School District")}),
-    ("hipaa", {("PERSON", "Priya Raman"), ("PERSON", "Daniel Okafor"), ("US_SSN", "531-62-4408"),
+    ("hipaa", {("PERSON", "Priya Raman"), ("PERSON", "Dr. Daniel Okafor"), ("US_SSN", "531-62-4408"),
                ("PHONE_NUMBER", "(714) 555-0166"), ("EMAIL_ADDRESS", "priya.raman@outlook.com"),
                ("ORGANIZATION", "Orange Coast Family Clinic"), ("ORGANIZATION", "UCI Medical Center"),
                ("HEALTH", "hypertension")}),
