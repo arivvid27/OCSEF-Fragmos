@@ -1,5 +1,5 @@
 // Mirrors the engine's /api/gateway and /api/keys routes.
-import { ENGINE, getJson, isRecord } from "../monitor/api";
+import { ENGINE, isRecord } from "../monitor/api";
 
 export type KeyId = string & { readonly __brand: "KeyId" };
 
@@ -34,6 +34,34 @@ function parseKey(raw: unknown): ApiKey | null {
   };
 }
 
+/** The engine did not answer: the request failed or timed out, or the /engine rewrite could not reach it. */
+export class EngineUnreachable extends Error {}
+
+const TIMEOUT_MS = 5000;
+
+async function call(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`${ENGINE}${path}`, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+  } catch (e) {
+    throw new EngineUnreachable(`${path} did not answer`, { cause: e });
+  }
+}
+
+// The engine answers errors as {"error": "..."}, FastAPI's own as {"detail": "..."}. A dead engine reaches
+// the browser as the rewrite's plain-text 500.
+async function failure(res: Response, what: string): Promise<Error> {
+  const body: unknown = await res.json().catch(() => undefined);
+  if (body === undefined && res.status >= 500) return new EngineUnreachable(`${what} answered ${res.status}`);
+  const detail = isRecord(body) ? (body.error ?? body.detail) : undefined;
+  return new Error(`${what} answered ${res.status}${typeof detail === "string" ? `: ${detail}` : ""}`);
+}
+
+async function getJson(path: string): Promise<unknown> {
+  const res = await call(path);
+  if (!res.ok) throw await failure(res, path);
+  return res.json();
+}
+
 export async function fetchGateway(): Promise<Gateway> {
   const raw = await getJson("/api/gateway");
   if (
@@ -58,19 +86,20 @@ export async function fetchKeys(): Promise<ApiKey[]> {
 }
 
 export async function createKey(name: string): Promise<CreatedKey> {
-  const res = await fetch(`${ENGINE}/api/keys`, {
+  const res = await call("/api/keys", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name }),
   });
-  if (res.status !== 201) throw new Error(`creating a key answered ${res.status}`);
+  if (res.status !== 201) throw await failure(res, "creating a key");
   const raw: unknown = await res.json();
   const key = parseKey(raw);
   if (!key || !isRecord(raw) || typeof raw.key !== "string") throw new Error("the new key has an unexpected shape");
   return { ...key, key: raw.key };
 }
 
+/** Resolves once the key is gone, including when it was already gone (404). */
 export async function revokeKey(id: KeyId): Promise<void> {
-  const res = await fetch(`${ENGINE}/api/keys/${encodeURIComponent(id)}`, { method: "DELETE" });
-  if (res.status !== 204) throw new Error(`revoking key ${id} answered ${res.status}`);
+  const res = await call(`/api/keys/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (res.status !== 204 && res.status !== 404) throw await failure(res, `revoking key ${id}`);
 }

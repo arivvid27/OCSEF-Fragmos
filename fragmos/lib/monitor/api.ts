@@ -193,7 +193,7 @@ export function parseServerMessage(text: string): ServerMessage | null {
 // next.config.ts rewrites /engine/* to the SENTINEL engine, the WebSocket included.
 export const ENGINE = "/engine";
 
-export async function getJson(path: string): Promise<unknown> {
+async function getJson(path: string): Promise<unknown> {
   const res = await fetch(`${ENGINE}${path}`);
   if (!res.ok) throw new Error(`${path} answered ${res.status}`);
   return res.json();
