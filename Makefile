@@ -2,6 +2,7 @@ RUN := engine/.run
 WEB_PORT := 3000
 WEBUI_PORT := 8080
 WEBUI_KEY := $(RUN)/openwebui.key
+FRAGMOS_ENGINE_URL ?= http://127.0.0.1:8787/v1
 FRAGMOS_CHAT_MODEL ?= cloud
 
 .PHONY: setup demo down test check webui
@@ -29,10 +30,12 @@ demo:
 webui:
 	@test -x webui/.venv/bin/open-webui || { echo "no webui/.venv: run make setup first"; exit 1; }
 	@mkdir -p $(RUN)
-	@test -s $(WEBUI_KEY) || { umask 077; (cd engine && .venv/bin/python -m sentinel keys create openwebui) >$(WEBUI_KEY).new \
-		&& mv $(WEBUI_KEY).new $(WEBUI_KEY) && echo "minted engine key openwebui"; } \
-		|| { echo "could not mint the openwebui key"; exit 1; }
-	@$(call start,webui,$(WEBUI_PORT),env PORT=$(WEBUI_PORT) FRAGMOS_KEY_FILE=$(WEBUI_KEY) FRAGMOS_CHAT_MODEL=$(FRAGMOS_CHAT_MODEL) webui/serve.sh)
+	@code=$$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $$(cat $(WEBUI_KEY) 2>/dev/null)" $(FRAGMOS_ENGINE_URL)/models); \
+	if [ ! -s $(WEBUI_KEY) ] || [ "$$code" = 401 ]; then umask 077; \
+		(cd engine && .venv/bin/python -m sentinel keys create openwebui) >$(WEBUI_KEY).new && mv $(WEBUI_KEY).new $(WEBUI_KEY) \
+			&& echo "minted gateway key openwebui into $(WEBUI_KEY)" || { echo "could not mint the openwebui key"; exit 1; }; \
+	fi
+	@$(call start,webui,$(WEBUI_PORT),env PORT=$(WEBUI_PORT) FRAGMOS_ENGINE_URL=$(FRAGMOS_ENGINE_URL) FRAGMOS_KEY_FILE=$(WEBUI_KEY) FRAGMOS_CHAT_MODEL=$(FRAGMOS_CHAT_MODEL) webui/serve.sh)
 	@for i in $$(seq 240); do curl -sf -o /dev/null http://127.0.0.1:$(WEBUI_PORT)/health && break; sleep 0.5; done; \
 		curl -sf -o /dev/null http://127.0.0.1:$(WEBUI_PORT)/health || { echo "Open WebUI did not come up; see $(RUN)/webui.log"; exit 1; }
 
