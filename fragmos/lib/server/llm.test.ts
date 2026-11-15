@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { UpstreamError, pickClaude, pickOpenAI, statusOf, textStream } from "./llm";
+import { UpstreamError, openStream, pickClaude, pickOpenAI, statusOf, textStream } from "./llm";
 
 function body(chunks: (string | Uint8Array)[], cancel?: () => void): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -98,5 +98,36 @@ describe("statusOf", () => {
     expect(statusOf(new Error('got {"error":{"code": 503,"message":"busy"}}'))).toBe(503);
     expect(statusOf(new Error("socket hang up"))).toBeUndefined();
     expect(statusOf(null)).toBeUndefined();
+  });
+});
+
+describe("openStream for Gemini", () => {
+  async function requestedWith(key: string | undefined) {
+    const fetched = vi.fn<typeof fetch>(async () => new Response('{"error":{"code":400}}', { status: 400 }));
+    vi.stubGlobal("fetch", fetched);
+    await openStream("gemini", { model: "gemini-test", key: key, system: "s", prompt: "p" }).catch(() => {});
+    vi.unstubAllGlobals();
+    const [url, init] = fetched.mock.calls[0];
+    return { url: String(url), key: new Headers(init?.headers).get("x-goog-api-key") };
+  }
+
+  it("sends a user's key to the Gemini API even when the server is set up for Vertex AI", async () => {
+    vi.stubEnv("GOOGLE_GENAI_USE_VERTEXAI", "true");
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "server-project");
+    vi.stubEnv("GOOGLE_CLOUD_LOCATION", "us-central1");
+    vi.stubEnv("GEMINI_API_KEY", "");
+    const sent = await requestedWith("AIzaUserKey-1234567890");
+    vi.unstubAllEnvs();
+    expect(sent.url).toMatch(/^https:\/\/generativelanguage\.googleapis\.com\//);
+    expect(sent.key).toBe("AIzaUserKey-1234567890");
+  });
+
+  it("uses the server's key when the request brings none", async () => {
+    vi.stubEnv("GOOGLE_GENAI_USE_VERTEXAI", "");
+    vi.stubEnv("GEMINI_API_KEY", "server-key-for-tests");
+    const sent = await requestedWith(undefined);
+    vi.unstubAllEnvs();
+    expect(sent.url).toMatch(/^https:\/\/generativelanguage\.googleapis\.com\/.*gemini-test/);
+    expect(sent.key).toBe("server-key-for-tests");
   });
 });
